@@ -6,19 +6,16 @@ vim: syntax=groovy
 ========================================================================================
                N G I - E X O S E Q    B E S T    P R A C T I C E
 ========================================================================================
- New Exome Sequencing Best Practice Analysis Pipeline. Started August 2017.
- #### Homepage / Documentation
- https://github.com/SciLifeLab/NGI-ExoSeq
- #### Authors
- Senthilkumar Panneerselvam @senthil10 <senthilkumar.panneerselvam@scilifelab.se>
- Phil Ewels @ewels <phil.ewels@scilifelab.se>
+ Exome sequencing pipeline based on NGI_exoseq with FastQC, Trim_Galore and MultiQC
 ----------------------------------------------------------------------------------------
 Developed based on GATK's best practise, takes set of FASTQ files and performs:
+ - preprocess (FASTQC, TrimGalore)
  - alignment (BWA)
  - recalibration (GATK)
  - realignment (GATK)
  - variant calling (GATK)
  - vairant evaluation (SnpEff)
+ - report (MultiQC) 
 */
 
 // Package version
@@ -28,9 +25,17 @@ version = '1.0'
 helpMessage = """
 ===============================================================================
 NGI-ExoSeq : Exome/Targeted sequence capture best practice analysis v${version}
+	     (with FastQC, TrimGalore and MultiQC steps)
 ===============================================================================
 
-Usage: nextflow SciLifeLab/NGI-ExoSeq --reads 'P1234*_R{1,2}.fastq.gz' --genome GRCh37
+Usage: nextflow_exoseq  --reads '*_R{1,2}.fastq.gz' --genome GRCh37
+
+*************************************************************************************************************************
+NOTE: fastq files are expected to have the typical Illumina naming convention (Ex: SampleName_S1_L001_R1_001.fastq.gz)
+	to make sure that lanes are merged correctly and read groups are written correctly:
+   		@RG	ID:SampleName_S1_L001	SM:SampleName	PL:illumina	PU:SampleName_S1_L001
+		@RG	ID:SampleName_S1_L002	SM:SampleName	PL:illumina	PU:SampleName_S1_L002
+*************************************************************************************************************************
 
 This is a typical usage where the required parameters (with no defaults) were
 given. The all avialable paramaters are listed below based on category
@@ -41,6 +46,9 @@ Required parameters:
 
 Output:
 --outdir                       Path where the results to be saved [Default: './results']
+
+Options:
+--singleEnd                    Specifies that the input is single end reads
 
 Kit files:
 --kit                          Kit used to prep samples [Default: 'agilent_v5']
@@ -57,19 +65,32 @@ Genome/Variation files:
 
 Other options:
 --project                      Uppnex project to user for SLURM executor
+--email                        Set this parameter to your e-mail address to get a summary e-mail with details of the run sent to you when the workflow exits
+-name                          Name for the pipeline run. If not specified, Nextflow will automatically generate a random mnemonic.
 
-For more detailed information regarding the paramaters and usage refer to package
+For more detailed information regarding the paramaters and usage refer to NGI_exoseq package
 documentation at https:// github.com/SciLifeLab/NGI-ExoSeq
 """
 
 // Variables and defaults
+
+params.singleEnd = false
+params.saveTrimmed = true
+params.notrim = false
+params.name = false
+params.multiqc_config = "$baseDir/conf/multiqc_config.yaml"
+params.email = false
+params.plaintext_email = false
+
+multiqc_config = file(params.multiqc_config)
+output_docs = file("$baseDir/docs/output.md")
+
 params.help = false
 params.reads = false
-params.genome = false
+//params.genome = 'GRCh37'   #- defined in config
 params.clusterOptions = false
 params.project = false
-params.outdir = './results'
-params.kit = 'agilent_v5'
+//params.kit = 'agilent_v5'   #- defined in config
 params.bait = params.kitFiles[ params.kit ] ? params.kitFiles[ params.kit ].bait ?: false : false
 params.target = params.kitFiles[ params.kit ] ? params.kitFiles[ params.kit ].target ?: false : false
 params.target_bed = params.kitFiles[ params.kit ] ? params.kitFiles[ params.kit ].target_bed ?: false : false
@@ -101,7 +122,7 @@ try {
 
 // Check blocks for ceratin required parameters, to see they are given and exists
 if (!params.reads || !params.genome){
-    exit 1, "Parameters '--project' and '--genome' are required to run the pipeline"
+    exit 1, "Parameters '--reads' and '--genome' are required to run the pipeline"
 }
 if (!params.kitFiles[ params.kit ] && ['bait', 'target'].count{ params[it] } != 2){
     exit 1, "Kit '${params.kit}' is not available in pre-defined config, so " +
@@ -112,18 +133,96 @@ if (!params.metaFiles[ params.genome ] && ['gfasta', 'bwa_index', 'dbsnp', 'hapm
             "files with options '--gfasta', '--bwa_index', '--dbsnp', '--hapmap', '--omni' and '--target'"
 }
 
-// Collect fastq files on sample_lane basis from given project directory
-Channel
-    .fromFilePairs(params.reads)
-    .ifEmpty { exit 1, "Could not find any FastQ files matching '$params.reads'\nNB: Path needs to be enclosed in quotes!" }
-    .into { fastq_for_aln; fastq_for_sam }
+// Has the run name been specified by the user?
+//  this has the bonus effect of catching both -name and --name
+custom_runName = params.name
+if( !(workflow.runName ==~ /[a-z]+_[a-z]+/) ){
+  custom_runName = workflow.runName
+}
+
+
+/*
+ * Create a channel for input read files
+ * Collect fastq files on sample_lane basis from given project directory
+ */
+    
+ Channel
+    .fromFilePairs( params.reads, size: params.singleEnd ? 1 : 2 )
+    .ifEmpty { exit 1, "Cannot find any reads matching: ${params.reads}\nNB: Path needs to be enclosed in quotes!\nIf this is single-end data, please specify --singleEnd on the command line." }
+    .into { raw_reads_fastqc; raw_reads_trimgalore }
+
+
+/* 
+ * ADDED FASTQC STEP
+*/
+
+process fastqc {
+    tag "$sample"
+
+    publishDir "${params.outdir}/${sample_name}/preprocess/fastqc", mode: 'copy',
+        saveAs: {filename -> filename.indexOf(".zip") > 0 ? "zips/$filename" : "$filename"}
+
+    input:
+    set val(sample), file(reads) from raw_reads_fastqc
+
+    output:
+    file '*_fastqc.{zip,html}' into fastqc_results
+
+    script:
+    sample_name = sample - ~/(_S\d*)?(_L\d*)?$/
+    """
+    fastqc -q $reads
+    """
+}
+
+/*
+ * ADDED TRIM_GALORE
+ */
+
+if(params.notrim){
+    trimmed_reads = read_files_trimming
+    trimgalore_results = []
+    trimgalore_fastqc_reports = []
+} else {
+    process trim_galore {
+        tag "$sample"
+
+        publishDir "${params.outdir}/${sample_name}/preprocess/trim_galore", mode: 'copy',
+            saveAs: {filename ->
+                if (filename.indexOf("_fastqc") > 0) "FastQC/$filename"
+                else if (filename.indexOf("trimming_report.txt") > 0) "logs/$filename"
+                else params.saveTrimmed ? filename : null
+            }
+
+        input:
+        set val(sample), file(reads) from raw_reads_trimgalore
+
+        output:
+        set val(sample), file('*.fq.gz') into trimmed_reads_bwa, trimmed_reads_sam
+        file '*trimming_report.txt' into trimgalore_results
+        file "*_fastqc.{zip,html}" into trimgalore_fastqc_reports
+
+        script:
+        sample_name = sample - ~/(_S\d*)?(_L\d*)?$/
+        if (params.singleEnd) {
+            """
+            trim_galore --fastqc --gzip $reads
+            """
+        } else {
+            """
+            trim_galore --paired --fastqc --gzip $reads
+            """
+        }
+    }
+}
+
 
 // Align the reads individually for each lane using BWA
 process bwaAlign {
     tag "$sample"
 
     input:
-    set val(sample), file(fastq) from fastq_for_aln
+    set val(sample), file (fastq) from trimmed_reads_bwa
 
     output:
     set val(sample), file("${sample}_bwa.sam") into raw_aln_sam
@@ -144,21 +243,21 @@ process fastqToSam {
     tag "$sample"
 
     input:
-    set val(sample), file(fastq) from fastq_for_sam
+    set val(sample), file(fastq) from trimmed_reads_sam
 
     output:
     set val(sample), file("${sample}_unaligned.bam") into raw_unaln_bam
 
     script:
-    sam_name = sample - ~/(_[A-Z]*)?(_L\d*)?$/
-    fc_lane = sample - ~/^(P\d*_)?(\d*_)?/
+    sam_name = sample - ~/(_S\d*)?(_L\d*)?$/
+    fc_lane = sample - ~/^(.*_)$/
     """
-    java -jar \$PICARD_HOME/picard.jar FastqToSam \\
+    picard FastqToSam \\
         FASTQ=${fastq[0]} \\
         FASTQ2=${fastq[1]} \\
         QUALITY_FORMAT=Standard \\
         OUTPUT=${sample}_unaligned.bam \\
-        READ_GROUP_NAME=2 \\
+        READ_GROUP_NAME=$fc_lane \\
         SAMPLE_NAME=$sam_name \\
         PLATFORM_UNIT=$fc_lane \\
         VALIDATION_STRINGENCY=SILENT \\
@@ -195,7 +294,7 @@ process mergeLaneBam {
 
     script:
     """
-    java -jar \$PICARD_HOME/picard.jar MergeBamAlignment \\
+    picard MergeBamAlignment \\
         UNMAPPED_BAM=$unaln_bam \\
         ALIGNED_BAM=$aln_sam \\
         OUTPUT=${sample}_merged.bam \\
@@ -229,11 +328,11 @@ process sortLanesBam {
     set val(sample), file(lane_bam) from lanes_merged_bam
 
     output:
-    set val({sample - ~/(_[A-Z0-9]*)?(_L\d*)?$/}), file("${sample}_sorted.bam") into lanes_sorted_bam
+    set val({sample - ~/(_S\d+)?(_L\d*)?$/}), file("${sample}_sorted.bam") into lanes_sorted_bam
 
     script:
     """
-    java -jar \$PICARD_HOME/picard.jar SortSam \\
+    picard SortSam \\
         INPUT=$lane_bam \\
         OUTPUT=${sample}_sorted.bam \\
         VERBOSITY=INFO \\
@@ -269,7 +368,7 @@ process mergeSampleBam {
     script:
     if (sample_bam.properties.target)
         """
-        java -jar \$PICARD_HOME/picard.jar MergeSamFiles \\
+        picard MergeSamFiles \\
             ${sample_bam.target.flatten{"INPUT=$it"}.join(' ')} \\
             OUTPUT=${sample}_sorted.bam \\
             SORT_ORDER=coordinate \\
@@ -306,7 +405,7 @@ process markDuplicate {
 
     script:
     """
-    java -jar \$PICARD_HOME/picard.jar MarkDuplicates \\
+    picard MarkDuplicates \\
         INPUT=$sorted_bam \\
         OUTPUT=${sample}_markdup.bam \\
         METRICS_FILE=${sample}.dup_metrics \\
@@ -338,10 +437,11 @@ process recalibrate {
 
     output:
     set val(sample), file("${sample}_recal.bam"), file("${sample}_recal.bai") into samples_recal_bam
+    file '.command.log' into gatk_base_recalibration_results
 
     script:
     """
-    java -jar \$GATK_HOME/GenomeAnalysisTK.jar -T BaseRecalibrator \\
+    gatk -T BaseRecalibrator \\
         -I $markdup_bam \\
         -R $params.gfasta \\
         -o ${sample}_table.recal \\
@@ -355,7 +455,7 @@ process recalibrate {
         --knownSites $params.dbsnp \\
         -l INFO
 
-    java -jar \$GATK_HOME/GenomeAnalysisTK.jar -T PrintReads \\
+    gatk -T PrintReads \\
         -BQSR ${sample}_table.recal \\
         -I $markdup_bam \\
         -R $params.gfasta \\
@@ -378,17 +478,18 @@ process realign {
 
     output:
     set val(sample), file("${sample}_realign.bam"), file("${sample}_realign.bai") into bam_vcall, bam_phasing, bam_metrics
+    file '.command.log' into gatk_base_realign_results
 
     script:
     """
-    java -jar \$GATK_HOME/GenomeAnalysisTK.jar -T RealignerTargetCreator \\
+    gatk -T RealignerTargetCreator \\
         -I $recal_bam \\
         -R $params.gfasta \\
         -o ${sample}_realign.intervals \\
         --known $params.dbsnp \\
         -l INFO
 
-    java -jar \$GATK_HOME/GenomeAnalysisTK.jar -T IndelRealigner \\
+    gatk -T IndelRealigner \\
         -I $recal_bam \\
         -R $params.gfasta \\
         -targetIntervals ${sample}_realign.intervals \\
@@ -410,7 +511,7 @@ process calculateMetrics {
 
     script:
     """
-    java -jar \$PICARD_HOME/picard.jar CollectAlignmentSummaryMetrics \\
+    picard CollectAlignmentSummaryMetrics \\
         INPUT=$aligned_bam \\
         OUTPUT=${sample}.align_metrics \\
         REFERENCE_SEQUENCE=$params.gfasta \\
@@ -428,7 +529,7 @@ process calculateMetrics {
         CREATE_MD5_FILE=false \\
         GA4GH_CLIENT_SECRETS=''
 
-    java -jar \$PICARD_HOME/picard.jar CollectInsertSizeMetrics \\
+    picard CollectInsertSizeMetrics \\
         HISTOGRAM_FILE=${sample}_insert.pdf \\
         INPUT=$aligned_bam \\
         OUTPUT=${sample}.insert_metrics \\
@@ -446,7 +547,7 @@ process calculateMetrics {
         CREATE_MD5_FILE=false \\
         GA4GH_CLIENT_SECRETS=''
 
-    java -jar \$PICARD_HOME/picard.jar CalculateHsMetrics \\
+    picard CollectHsMetrics \\
         BAIT_INTERVALS=$params.bait \\
         TARGET_INTERVALS=$params.target \\
         INPUT=$aligned_bam \\
@@ -477,7 +578,7 @@ process variantCall {
 
     script:
     """
-    java -jar \$GATK_HOME/GenomeAnalysisTK.jar -T HaplotypeCaller \\
+    gatk -T HaplotypeCaller \\
         -I $realign_bam \\
         -R $params.gfasta \\
         -o ${sample}_variants.vcf \\
@@ -506,13 +607,13 @@ process variantSelect {
 
     script:
     """
-    java -jar \$GATK_HOME/GenomeAnalysisTK.jar -T SelectVariants \\
+    gatk -T SelectVariants \\
         -R $params.gfasta \\
         --variant $raw_vcf \\
         --out ${sample}_snp.vcf \\
         --selectTypeToInclude SNP
 
-    java -jar \$GATK_HOME/GenomeAnalysisTK.jar -T SelectVariants \\
+    gatk -T SelectVariants \\
         -R $params.gfasta \\
         --variant $raw_vcf \\
         --out ${sample}_indels.vcf \\
@@ -537,7 +638,7 @@ process filterSnp {
 
     script:
     """
-    java -jar \$GATK_HOME/GenomeAnalysisTK.jar -T VariantRecalibrator \\
+    gatk -T VariantRecalibrator \\
         -R $params.gfasta \\
         --input $raw_snp \\
         --maxGaussians 4 \\
@@ -551,7 +652,7 @@ process filterSnp {
         -an FS \\
         -an MQ
 
-    java -jar \$GATK_HOME/GenomeAnalysisTK.jar -T ApplyRecalibration \\
+    gatk -T ApplyRecalibration \\
         -R $params.gfasta \\
         --out ${sample}_filtered_snp.vcf \\
         --input $raw_snp \\
@@ -574,7 +675,7 @@ process filterIndel {
 
     script:
     """
-    java -jar \$GATK_HOME/GenomeAnalysisTK.jar -T VariantFiltration \\
+    gatk -T VariantFiltration \\
         -R $params.gfasta \\
         --variant $raw_indel \\
         --out ${sample}_filtered_indels.vcf \\
@@ -605,7 +706,7 @@ process combineVariants {
 
     script:
     """
-    java -jar \$GATK_HOME/GenomeAnalysisTK.jar -T CombineVariants \\
+    gatk -T CombineVariants \\
         -R $params.gfasta \\
         --out ${sample}_combined_variants.vcf \\
         --genotypemergeoption PRIORITIZE \\
@@ -614,6 +715,7 @@ process combineVariants {
         --rod_priority_list ${sample}_SNP_filtered,${sample}_indels_filtered
     """
 }
+
 
 // Group filted bam and vcf for each sample for phasing
 bam_phasing
@@ -634,7 +736,7 @@ process haplotypePhasing {
 
     script:
     """
-    java -jar \$GATK_HOME/GenomeAnalysisTK.jar -T ReadBackedPhasing \\
+    gatk -T ReadBackedPhasing \\
         -R $params.gfasta \\
         -I $bam \\
         --variant $vcf \\
@@ -652,10 +754,11 @@ process variantEvaluate {
 
     output:
     file "${sample}_combined_phased_variants.eval"
+    file "${sample}_combined_phased_variants.eval" into gatk_variant_eval_results
 
     script:
     """
-    java -jar \$GATK_HOME/GenomeAnalysisTK.jar -T VariantEval \\
+    gatk -T VariantEval \\
         -R $params.gfasta \\
         --eval $phased_vcf \\
         --dbsnp $params.dbsnp \\
@@ -671,6 +774,17 @@ process variantEvaluate {
     """
 }
 
+////////////////////////////////////////////////////////////////////////////////////////////
+//// Download the GRCh37.75 database manually as this will not let you write in miniconda
+// 	cd /shared/ucl/depts/cancer/apps/miniconda/3/share/snpeff-4.3.1t-1
+//	wget https://kent.dl.sourceforge.net/project/snpeff/databases/v4_3/snpEff_v4_3_GRCh37.75.zip
+//	unzip snpEff_v4_3_GRCh37.75.zip
+//// ALSO: this might fail with "java.lang.OutOfMemoryError: GC overhead limit exceeded" errors
+// 	(although t should be ok with more than 1 core: https://github.com/bcbio/bcbio-nextgen/issues/1730)
+//	or with "java.lang.OutOfMemoryError: Java heap space" errors, 
+//	so use directly the snpEff.jar with -Xmx
+/////////////////////////////////////////////////////////////////////////////////////////////
+
 // Annotate variants
 process variantAnnotate {
     tag "$sample"
@@ -678,21 +792,32 @@ process variantAnnotate {
 
     input:
     set val(sample), file(phased_vcf), file(phased_vcf_ind) from vcf_anno
+    val snpeffDb from Channel.value(params.genomes[params.genome].snpeffDb)
 
     output:
     file "*.{vcf,idx,snpeff}"
+    file 'SnpEffStats.csv' into snpeff_results
 
     script:
     """
-    java -Xmx6g -jar \$SNPEFF_HOME/snpEff.jar \\
-        -c \$SNPEFF_HOME/snpEff.config \\
+#    snpEff \\
+#        -c /shared/ucl/depts/cancer/apps/miniconda/3/share/snpeff-4.3.1t-1/snpEff.config \\
+#        -i vcf \\
+#        -o gatk \\
+#        -o vcf \\
+#        -filterInterval $params.target_bed GRCh37.75 $phased_vcf \\
+#            > ${sample}_combined_phased_variants.snpeff
+
+    java -jar -Xmx${task.memory.toGiga()}g  \\
+	/shared/ucl/depts/cancer/apps/miniconda/3/share/snpeff-4.3.1t-1/snpEff.jar  \\
+        -c /shared/ucl/depts/cancer/apps/miniconda/3/share/snpeff-4.3.1t-1/snpEff.config \\
         -i vcf \\
         -o gatk \\
         -o vcf \\
-        -filterInterval $params.target_bed GRCh37.75 $phased_vcf \\
+        -filterInterval $params.target_bed ${snpeffDb} $phased_vcf \\
             > ${sample}_combined_phased_variants.snpeff
 
-    java -jar \$GATK_HOME/GenomeAnalysisTK.jar -T VariantAnnotator \\
+    gatk -T VariantAnnotator \\
         -R $params.gfasta \\
         -A SnpEff \\
         --variant $phased_vcf \\
@@ -700,3 +825,215 @@ process variantAnnotate {
         --out ${sample}_combined_phased_annotated_variants.vcf
     """
 }
+
+
+// Header log info
+log.info """=======================================================
+                                          ,--./,-.
+          ___     __   __   __   ___     /,-._.--~\'
+    |\\ | |__  __ /  ` /  \\ |__) |__         }  {
+    | \\| |       \\__, \\__/ |  \\ |___     \\`-._,-`-,
+                                          `._,._,\'
+
+NGI_exoseq v${workflow.manifest.version}"
+======================================================="""
+def summary = [:]
+summary['Pipeline Name']  = 'NGI_exoseq'
+summary['Pipeline Version'] = workflow.manifest.version
+summary['Run Name']     = custom_runName ?: workflow.runName
+summary['Genome']       = params.genome
+summary['Reads']        = params.reads
+summary['Data Type']    = params.singleEnd ? 'Single-End' : 'Paired-End'
+summary['Output dir']   = params.outdir
+summary['Working dir']  = workflow.workDir
+summary['Container Engine'] = workflow.containerEngine
+if(workflow.containerEngine) summary['Container'] = workflow.container
+summary['Current home']   = "$HOME"
+summary['Current user']   = "$USER"
+summary['Current path']   = "$PWD"
+summary['Working dir']    = workflow.workDir
+summary['Output dir']     = params.outdir
+summary['Script dir']     = workflow.projectDir
+summary['Config Profile'] = workflow.profile
+if(workflow.profile == 'awsbatch'){
+   summary['AWS Region'] = params.awsregion
+   summary['AWS Queue'] = params.awsqueue
+}
+if(params.email) summary['E-mail Address'] = params.email
+log.info summary.collect { k,v -> "${k.padRight(15)}: $v" }.join("\n")
+log.info "========================================="
+
+
+
+
+def create_workflow_summary(summary) {
+
+    def yaml_file = workDir.resolve('workflow_summary_mqc.yaml')
+    yaml_file.text  = """
+    id: 'NGI-exoseq-summary'
+    description: " - this information is collected when the pipeline is started."
+    section_name: 'NGI-exoseq Workflow Summary'
+    section_href: 'https://github.com/senthil10/NGI-ExoSeq'
+    plot_type: 'html'
+    data: |
+        <dl class=\"dl-horizontal\">
+${summary.collect { k,v -> "            <dt>$k</dt><dd><samp>${v ?: '<span style=\"color:#999999;\">N/A</a>'}</samp></dd>" }.join("\n")}
+        </dl>
+    """.stripIndent()
+
+   return yaml_file
+}
+
+
+/*
+ * Parse software version numbers
+ */
+process get_software_versions {
+
+    output:
+    file 'software_versions_mqc.yaml' into software_versions_yaml
+
+    script:
+    """
+    echo $workflow.manifest.version > v_pipeline.txt
+    echo $workflow.nextflow.version > v_nextflow.txt
+    fastqc --version > v_fastqc.txt
+    trim_galore --version > v_trim_galore.txt
+    echo \$(bwa 2>&1) > v_bwa.txt
+    picard MarkDuplicates --version &> v_picard.txt  || true
+    gatk ApplyBQSR --help 2>&1 | grep Version: > v_gatk.txt 2>&1 || true
+    multiqc --version > v_multiqc.txt
+    scrape_software_versions.py > software_versions_mqc.yaml
+    """
+}
+
+
+/*
+ * MultiQC
+ */
+process multiqc {
+    publishDir "${params.outdir}/MultiQC", mode: 'copy'
+
+    input:
+    file multiqc_config
+    file ('fastqc/*') from fastqc_results.collect()
+    file ('trimgalore/*') from trimgalore_results.collect()
+    file ('picard/*') from dup_metric_files.collect()
+    file ('gatk_base_recalibration/T*') from gatk_base_recalibration_results.collect()
+    file ('snpEff/*') from snpeff_results.collect()
+    file ('gatk_variant_eval/*') from gatk_variant_eval_results.collect()
+    file ('software_versions/*') from software_versions_yaml
+    file workflow_summary from create_workflow_summary(summary)
+
+    output:
+    file "*multiqc_report.html" into multiqc_report
+    file "*_data"
+
+    script:
+    rtitle = custom_runName ? "--title \"$custom_runName\"" : ''
+    rfilename = custom_runName ? "--filename " + custom_runName.replaceAll('\\W','_').replaceAll('_+','_') + "_multiqc_report" : ''
+    """
+    multiqc -f $rtitle $rfilename --config $multiqc_config .
+    """
+}
+
+
+/*
+ * Output Description HTML
+ */
+process output_documentation {
+    tag "$prefix"
+    publishDir "${params.outdir}/Documentation", mode: 'copy'
+
+    input:
+    file output_docs
+
+    output:
+    file "results_description.html"
+
+    script:
+    """
+    markdown_to_html.r $output_docs results_description.html
+    """
+}
+
+
+
+/*
+ * Completion e-mail notification
+ */
+workflow.onComplete {
+
+    // Set up the e-mail variables
+    def subject = "[NGI_exoseq] Successful: $workflow.runName"
+    if(!workflow.success){
+      subject = "[NGI_exoseq] FAILED: $workflow.runName"
+    }
+    def email_fields = [:]
+    email_fields['version'] = workflow.manifest.version
+    email_fields['runName'] = custom_runName ?: workflow.runName
+    email_fields['success'] = workflow.success
+    email_fields['dateComplete'] = workflow.complete
+    email_fields['duration'] = workflow.duration
+    email_fields['exitStatus'] = workflow.exitStatus
+    email_fields['errorMessage'] = (workflow.errorMessage ?: 'None')
+    email_fields['errorReport'] = (workflow.errorReport ?: 'None')
+    email_fields['commandLine'] = workflow.commandLine
+    email_fields['projectDir'] = workflow.projectDir
+    email_fields['summary'] = summary
+    email_fields['summary']['Date Started'] = workflow.start
+    email_fields['summary']['Date Completed'] = workflow.complete
+    email_fields['summary']['Pipeline script file path'] = workflow.scriptFile
+    email_fields['summary']['Pipeline script hash ID'] = workflow.scriptId
+    if(workflow.repository) email_fields['summary']['Pipeline repository Git URL'] = workflow.repository
+    if(workflow.commitId) email_fields['summary']['Pipeline repository Git Commit'] = workflow.commitId
+    if(workflow.revision) email_fields['summary']['Pipeline Git branch/tag'] = workflow.revision
+    email_fields['summary']['Nextflow Version'] = workflow.nextflow.version
+    email_fields['summary']['Nextflow Build'] = workflow.nextflow.build
+    email_fields['summary']['Nextflow Compile Timestamp'] = workflow.nextflow.timestamp
+
+    // Render the TXT template
+    def engine = new groovy.text.GStringTemplateEngine()
+    def tf = new File("$baseDir/assets/email_template.txt")
+    def txt_template = engine.createTemplate(tf).make(email_fields)
+    def email_txt = txt_template.toString()
+
+    // Render the HTML template
+    def hf = new File("$baseDir/assets/email_template.html")
+    def html_template = engine.createTemplate(hf).make(email_fields)
+    def email_html = html_template.toString()
+
+    // Render the sendmail template
+    def smail_fields = [ email: params.email, subject: subject, email_txt: email_txt, email_html: email_html, baseDir: "$baseDir" ]
+    def sf = new File("$baseDir/assets/sendmail_template.txt")
+    def sendmail_template = engine.createTemplate(sf).make(smail_fields)
+    def sendmail_html = sendmail_template.toString()
+
+    // Send the HTML e-mail
+    if (params.email) {
+        try {
+          if( params.plaintext_email ){ throw GroovyException('Send plaintext e-mail, not HTML') }
+          // Try to send HTML e-mail using sendmail
+          [ 'sendmail', '-t' ].execute() << sendmail_html
+          log.info "[NGI_exoseq] Sent summary e-mail to $params.email (sendmail)"
+        } catch (all) {
+          // Catch failures and try with plaintext
+          [ 'mail', '-s', subject, params.email ].execute() << email_txt
+          log.info "[NGI_exoseq] Sent summary e-mail to $params.email (mail)"
+        }
+    }
+
+    // Write summary e-mail HTML to a file
+    def output_d = new File( "${params.outdir}/Documentation/" )
+    if( !output_d.exists() ) {
+      output_d.mkdirs()
+    }
+    def output_hf = new File( output_d, "pipeline_report.html" )
+    output_hf.withWriter { w -> w << email_html }
+    def output_tf = new File( output_d, "pipeline_report.txt" )
+    output_tf.withWriter { w -> w << email_txt }
+
+    log.info "[NGI_exoseq] Pipeline Complete"
+
+}
+
