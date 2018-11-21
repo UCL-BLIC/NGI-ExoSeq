@@ -49,6 +49,7 @@ Output:
 
 Options:
 --singleEnd                    Specifies that the input is single end reads
+--skip_markduplicates          Skip picard MarkDuplicates (useful for amplicons)
 
 Kit files:
 --kit                          Kit used to prep samples [Default: 'agilent_v5']
@@ -75,6 +76,7 @@ documentation at https:// github.com/SciLifeLab/NGI-ExoSeq
 // Variables and defaults
 
 params.singleEnd = false
+params.skip_markduplicates = false
 params.saveTrimmed = true
 params.notrim = false
 params.name = false
@@ -390,81 +392,123 @@ process mergeSampleBam {
         """
 }
 
-// Mark duplicates for all merged samples bam files
-process markDuplicate {
-    tag "$sample"
-    publishDir "${params.outdir}/${sample}/metrics", mode: 'copy',
-        saveAs: { filename -> filename.indexOf(".dup_metrics") > 0 ? filename : null }
+if(!params.skip_markduplicates){
 
-    input:
-    set val(sample), file(sorted_bam) from samples_sorted_bam
+	// Mark duplicates for all merged samples bam files
+	process markDuplicate {
+	    tag "$sample"
+	    publishDir "${params.outdir}/${sample}/metrics", mode: 'copy',
+	        saveAs: { filename -> filename.indexOf(".dup_metrics") > 0 ? filename : null }
+	
+	    input:
+	    set val(sample), file(sorted_bam) from samples_sorted_bam
+	
+	    output:
+	    set val(sample), file("${sample}_markdup.bam") into samples_markdup_bam
+	    file "${sample}.dup_metrics" into dup_metric_files
+	
+	    script:
+	    """
+	    picard MarkDuplicates \\
+	        INPUT=$sorted_bam \\
+	        OUTPUT=${sample}_markdup.bam \\
+	        METRICS_FILE=${sample}.dup_metrics \\
+	        TMP_DIR=tmp \\
+	        VALIDATION_STRINGENCY=SILENT \\
+	        REMOVE_DUPLICATES=false \\
+	        ASSUME_SORTED=false \\
+	        MAX_SEQUENCES_FOR_DISK_READ_ENDS_MAP=50000 \\
+	        MAX_FILE_HANDLES_FOR_READ_ENDS_MAP=8000 \\
+	        SORTING_COLLECTION_SIZE_RATIO=0.25 \\
+	        READ_NAME_REGEX=\"[a-zA-Z0-9]+:[0-9]:([0-9]+):([0-9]+):([0-9]+).*\" \\
+	        OPTICAL_DUPLICATE_PIXEL_DISTANCE=100 \\
+	        VERBOSITY=INFO \\
+	        QUIET=false \\
+	        COMPRESSION_LEVEL=5 \\
+	        CREATE_INDEX=false \\
+	        MAX_RECORDS_IN_RAM=500000 \\
+	        CREATE_MD5_FILE=false \\
+	        GA4GH_CLIENT_SECRETS=''
+	    """
+	}
 
-    output:
-    set val(sample), file("${sample}_markdup.bam") into samples_markdup_bam
-    file "${sample}.dup_metrics" into dup_metric_files
+	process recalibrate {
+	    tag "$sample"
+	
+	    input:
+	    set val(sample), file(markdup_bam) from samples_markdup_bam
+	
+	    output:
+	    set val(sample), file("${sample}_recal.bam"), file("${sample}_recal.bai") into samples_recal_bam
+	    file '.command.log' into gatk_base_recalibration_results
+	
+	    script:
+	    """
+	    gatk -T BaseRecalibrator \\
+	        -I $markdup_bam \\
+	        -R $params.gfasta \\
+	        -o ${sample}_table.recal \\
+	        -cov ReadGroupCovariate \\
+	        -cov QualityScoreCovariate \\
+	        -cov CycleCovariate \\
+	        -cov ContextCovariate \\
+	        -U \\
+	        -OQ \\
+	        --default_platform illumina \\
+	        --knownSites $params.dbsnp \\
+	        -l INFO
+	
+	    gatk -T PrintReads \\
+	        -BQSR ${sample}_table.recal \\
+	        -I $markdup_bam \\
+	        -R $params.gfasta \\
+	        -o ${sample}_recal.bam \\
+	        -baq RECALCULATE \\
+	        -U \\
+	        -OQ \\
+	        -l INFO
+	    """
+	}
+}else{
 
-    script:
-    """
-    picard MarkDuplicates \\
-        INPUT=$sorted_bam \\
-        OUTPUT=${sample}_markdup.bam \\
-        METRICS_FILE=${sample}.dup_metrics \\
-        TMP_DIR=tmp \\
-        VALIDATION_STRINGENCY=SILENT \\
-        REMOVE_DUPLICATES=false \\
-        ASSUME_SORTED=false \\
-        MAX_SEQUENCES_FOR_DISK_READ_ENDS_MAP=50000 \\
-        MAX_FILE_HANDLES_FOR_READ_ENDS_MAP=8000 \\
-        SORTING_COLLECTION_SIZE_RATIO=0.25 \\
-        READ_NAME_REGEX=\"[a-zA-Z0-9]+:[0-9]:([0-9]+):([0-9]+):([0-9]+).*\" \\
-        OPTICAL_DUPLICATE_PIXEL_DISTANCE=100 \\
-        VERBOSITY=INFO \\
-        QUIET=false \\
-        COMPRESSION_LEVEL=5 \\
-        CREATE_INDEX=false \\
-        MAX_RECORDS_IN_RAM=500000 \\
-        CREATE_MD5_FILE=false \\
-        GA4GH_CLIENT_SECRETS=''
-    """
-}
-
-// Recalibrate the bam file with known variants
-process recalibrate {
-    tag "$sample"
-
-    input:
-    set val(sample), file(markdup_bam) from samples_markdup_bam
-
-    output:
-    set val(sample), file("${sample}_recal.bam"), file("${sample}_recal.bai") into samples_recal_bam
-    file '.command.log' into gatk_base_recalibration_results
-
-    script:
-    """
-    gatk -T BaseRecalibrator \\
-        -I $markdup_bam \\
-        -R $params.gfasta \\
-        -o ${sample}_table.recal \\
-        -cov ReadGroupCovariate \\
-        -cov QualityScoreCovariate \\
-        -cov CycleCovariate \\
-        -cov ContextCovariate \\
-        -U \\
-        -OQ \\
-        --default_platform illumina \\
-        --knownSites $params.dbsnp \\
-        -l INFO
-
-    gatk -T PrintReads \\
-        -BQSR ${sample}_table.recal \\
-        -I $markdup_bam \\
-        -R $params.gfasta \\
-        -o ${sample}_recal.bam \\
-        -baq RECALCULATE \\
-        -U \\
-        -OQ \\
-        -l INFO
-    """
+	// Recalibrate the bam file with known variants
+	process recalibrate_wo_markdup {
+	    tag "$sample"
+	
+	    input:
+	    set val(sample), file(sorted_bam) from samples_sorted_bam
+	
+	    output:
+	    set val(sample), file("${sample}_recal.bam"), file("${sample}_recal.bai") into samples_recal_bam
+	    file '.command.log' into gatk_base_recalibration_results
+	
+	    script:
+	    """
+	    gatk -T BaseRecalibrator \\
+	        -I $markdup_bam \\
+	        -R $params.gfasta \\
+	        -o ${sample}_table.recal \\
+	        -cov ReadGroupCovariate \\
+	        -cov QualityScoreCovariate \\
+	        -cov CycleCovariate \\
+	        -cov ContextCovariate \\
+	        -U \\
+	        -OQ \\
+	        --default_platform illumina \\
+	        --knownSites $params.dbsnp \\
+	        -l INFO
+	
+	    gatk -T PrintReads \\
+	        -BQSR ${sample}_table.recal \\
+	        -I $markdup_bam \\
+	        -R $params.gfasta \\
+	        -o ${sample}_recal.bam \\
+	        -baq RECALCULATE \\
+	        -U \\
+	        -OQ \\
+	        -l INFO
+	    """
+	}
 }
 
 // Realign the bam files based on known variants
@@ -814,6 +858,7 @@ process variantAnnotate {
         -i vcf \\
         -o gatk \\
         -o vcf \\
+        -csvStats SnpEffStats.csv \\
         -filterInterval $params.target_bed ${snpeffDb} $phased_vcf \\
             > ${sample}_combined_phased_variants.snpeff
 
@@ -908,33 +953,62 @@ process get_software_versions {
 }
 
 
-/*
- * MultiQC
- */
-process multiqc {
-    publishDir "${params.outdir}/MultiQC", mode: 'copy'
 
-    input:
-    file multiqc_config
-    file ('fastqc/*') from fastqc_results.collect()
-    file ('trimgalore/*') from trimgalore_results.collect()
-    file ('picard/*') from dup_metric_files.collect()
-    file ('gatk_base_recalibration/T*') from gatk_base_recalibration_results.collect()
-    file ('snpEff/*') from snpeff_results.collect()
-    file ('gatk_variant_eval/*') from gatk_variant_eval_results.collect()
-    file ('software_versions/*') from software_versions_yaml
-    file workflow_summary from create_workflow_summary(summary)
+if(!params.skip_markduplicates){
 
-    output:
-    file "*multiqc_report.html" into multiqc_report
-    file "*_data"
-
-    script:
-    rtitle = custom_runName ? "--title \"$custom_runName\"" : ''
-    rfilename = custom_runName ? "--filename " + custom_runName.replaceAll('\\W','_').replaceAll('_+','_') + "_multiqc_report" : ''
-    """
-    multiqc -f $rtitle $rfilename --config $multiqc_config .
-    """
+	/*
+	 * MultiQC
+	 */
+	process multiqc {
+	    publishDir "${params.outdir}/MultiQC", mode: 'copy'
+	
+	    input:
+	    file multiqc_config
+	    file ('fastqc/*') from fastqc_results.collect()
+	    file ('trimgalore/*') from trimgalore_results.collect()
+	    file ('picard/*') from dup_metric_files.collect()
+	    file ('gatk_base_recalibration/T*') from gatk_base_recalibration_results.collect()
+	    file ('snpEff/*') from snpeff_results.collect()
+	    file ('gatk_variant_eval/*') from gatk_variant_eval_results.collect()
+	    file ('software_versions/*') from software_versions_yaml
+	    file workflow_summary from create_workflow_summary(summary)
+	
+	    output:
+	    file "*multiqc_report.html" into multiqc_report
+	    file "*_data"
+	
+	    script:
+	    rtitle = custom_runName ? "--title \"$custom_runName\"" : ''
+	    rfilename = custom_runName ? "--filename " + custom_runName.replaceAll('\\W','_').replaceAll('_+','_') + "_multiqc_report" : ''
+	    """
+	    multiqc -f $rtitle $rfilename --config $multiqc_config .
+	    """
+	}
+}else{
+	process multiqc_wo_markdup {
+	    publishDir "${params.outdir}/MultiQC", mode: 'copy'
+	
+	    input:
+	    file multiqc_config
+	    file ('fastqc/*') from fastqc_results.collect()
+	    file ('trimgalore/*') from trimgalore_results.collect()
+	    file ('gatk_base_recalibration/T*') from gatk_base_recalibration_results.collect()
+	    file ('snpEff/*') from snpeff_results.collect()
+	    file ('gatk_variant_eval/*') from gatk_variant_eval_results.collect()
+	    file ('software_versions/*') from software_versions_yaml
+	    file workflow_summary from create_workflow_summary(summary)
+	
+	    output:
+	    file "*multiqc_report.html" into multiqc_report
+	    file "*_data"
+	
+	    script:
+	    rtitle = custom_runName ? "--title \"$custom_runName\"" : ''
+	    rfilename = custom_runName ? "--filename " + custom_runName.replaceAll('\\W','_').replaceAll('_+','_') + "_multiqc_report" : ''
+	    """
+	    multiqc -f $rtitle $rfilename --config $multiqc_config .
+	    """
+	}
 }
 
 
