@@ -855,6 +855,7 @@ process variantAnnotate {
     java -jar -Xmx${task.memory.toGiga()}g  \\
 	/shared/ucl/depts/cancer/apps/miniconda/3/share/snpeff-4.3.1t-1/snpEff.jar  \\
         -c /shared/ucl/depts/cancer/apps/miniconda/3/share/snpeff-4.3.1t-1/snpEff.config \\
+        -csvStats SnpEffStats.csv \\
         -i vcf \\
         -o gatk \\
         -o vcf \\
