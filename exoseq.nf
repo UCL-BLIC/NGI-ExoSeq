@@ -792,7 +792,7 @@ process variantAnnotate {
 
     input:
     set val(sample), file(phased_vcf), file(phased_vcf_ind) from vcf_anno
-    val snpeffDb from Channel.value(params.genomes[params.genome].snpeffDb)
+    val snpeffDb from Channel.value(params.metaFiles[ params.genome ].snpeffDb)
 
     output:
     file "*.{vcf,idx,snpeff}"
