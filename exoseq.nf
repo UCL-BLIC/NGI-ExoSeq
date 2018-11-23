@@ -485,7 +485,7 @@ if(!params.skip_markduplicates){
 	    script:
 	    """
 	    gatk -T BaseRecalibrator \\
-	        -I $markdup_bam \\
+	        -I $sorted_bam \\
 	        -R $params.gfasta \\
 	        -o ${sample}_table.recal \\
 	        -cov ReadGroupCovariate \\
@@ -500,7 +500,7 @@ if(!params.skip_markduplicates){
 	
 	    gatk -T PrintReads \\
 	        -BQSR ${sample}_table.recal \\
-	        -I $markdup_bam \\
+	        -I $sorted_bam \\
 	        -R $params.gfasta \\
 	        -o ${sample}_recal.bam \\
 	        -baq RECALCULATE \\
