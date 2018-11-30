@@ -236,7 +236,7 @@ process bwaAlign {
     script:
     """
     bwa mem \\
-        -t 8 \\
+        -t ${task.cpus} \\
         -k 2 \\
         $params.bwa_index \\
         $fastq \\
