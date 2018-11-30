@@ -3,6 +3,7 @@ from __future__ import print_function
 from collections import OrderedDict
 import re
 
+
 regexes = {
     'NGI_exoseq': ['v_pipeline.txt', r"(\S+)"],
     'Nextflow': ['v_nextflow.txt', r"(\S+)"],
@@ -11,6 +12,7 @@ regexes = {
     'BWA': ['v_bwa.txt', r"Version: (\S+)"],
     'Picard': ['v_picard.txt', r"version (\S+)"],
     'GATK': ['v_gatk.txt', r"Version:(\S+)"],
+    'QualiMap': ['v_qualimap.txt', r"QualiMap v(\S+)"],
     'MultiQC': ['v_multiqc.txt', r"multiqc, version (\S+)"],
 }
 results = OrderedDict()
@@ -21,6 +23,7 @@ results['Trim Galore!'] = '<span style="color:#999999;\">N/A</span>'
 results['BWA'] = '<span style="color:#999999;\">N/A</span>'
 results['Picard'] = '<span style="color:#999999;\">N/A</span>'
 results['GATK'] = '<span style="color:#999999;\">N/A</span>'
+results['QualiMap'] = '<span style="color:#999999;\">N/A</span>'
 results['MultiQC'] = '<span style="color:#999999;\">N/A</span>'
 
 # Search each file using its regex

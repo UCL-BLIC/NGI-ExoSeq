@@ -3,17 +3,18 @@
 vim: syntax=groovy
 -*- mode: groovy;-*-
 
-===============================================================================================
-                     N G I - E X O S E Q    B E S T    P R A C T I C E
-===============================================================================================
- Exome seq pipeline based on NGI_exoseq with FastQC, Trim_Galore, MultiQC, QualiMap  and GATK-4
+========================================================================================
+               N G I - E X O S E Q    B E S T    P R A C T I C E
+========================================================================================
+ Exome sequencing pipeline based on NGI_exoseq with FastQC, Trim_Galore and MultiQC
 ----------------------------------------------------------------------------------------
 Developed based on GATK's best practise, takes set of FASTQ files and performs:
  - preprocess (FASTQC, TrimGalore)
  - alignment (BWA)
- - recalibration (GATK4)
- - variant calling (GATK4)
- - variant evaluation (GATK3/SnpEff)
+ - recalibration (GATK)
+ - realignment (GATK)
+ - variant calling (GATK)
+ - vairant evaluation (SnpEff)
  - report (MultiQC) 
 */
 
@@ -24,7 +25,7 @@ version = '1.0'
 helpMessage = """
 ===============================================================================
 NGI-ExoSeq : Exome/Targeted sequence capture best practice analysis v${version}
-	     (with FastQC, TrimGalore, MultiQC, QualiMap and GATK-4 steps)
+	     (with FastQC, TrimGalore and MultiQC steps)
 ===============================================================================
 
 Usage: nextflow_exoseq  --reads '*_R{1,2}.fastq.gz' --genome GRCh37
@@ -59,8 +60,6 @@ Kit files:
 Genome/Variation files:
 --dbsnp                        Absolute path to dbsnp file
 --hapmap                       Absolute path to hapmap file
---thousandg                    Absolute path to 1kGP file
---mills                        Absolute path to mills file
 --omni                         Absolute path to omni file
 --gfasta                       Absolute path to genome fasta file
 --bwa_index                    Absolute path to bwa genome index
@@ -99,8 +98,6 @@ params.target = params.kitFiles[ params.kit ] ? params.kitFiles[ params.kit ].ta
 params.target_bed = params.kitFiles[ params.kit ] ? params.kitFiles[ params.kit ].target_bed ?: false : false
 params.dbsnp = params.metaFiles[ params.genome ] ? params.metaFiles[ params.genome ].dbsnp ?: false : false
 params.hapmap = params.metaFiles[ params.genome ] ? params.metaFiles[ params.genome ].hapmap ?: false : false
-params.mills = params.metaFiles[ params.genome ] ? params.metaFiles[ params.genome ].mills ?: false : false
-params.thousandg = params.metaFiles[ params.genome ] ? params.metaFiles[ params.genome ].thousandg ?: false : false
 params.omni = params.metaFiles[ params.genome ] ? params.metaFiles[ params.genome ].omni ?: false : false
 params.gfasta = params.metaFiles[ params.genome ] ? params.metaFiles[ params.genome ].gfasta ?: false : false
 params.bwa_index = params.metaFiles[ params.genome ] ? params.metaFiles[ params.genome ].bwa_index ?: false : false
@@ -133,9 +130,9 @@ if (!params.kitFiles[ params.kit ] && ['bait', 'target'].count{ params[it] } != 
     exit 1, "Kit '${params.kit}' is not available in pre-defined config, so " +
             "provide all kit specific files with option '--bait' and '--target'"
 }
-if (!params.metaFiles[ params.genome ] && ['gfasta', 'bwa_index', 'dbsnp', 'hapmap', "mills", "thousandg",'omni'].count{ params[it] } != 5){
+if (!params.metaFiles[ params.genome ] && ['gfasta', 'bwa_index', 'dbsnp', 'hapmap', 'omni'].count{ params[it] } != 5){
     exit 1, "Genome '${params.genome}' is not available in pre-defined config, so you need to provide all genome specific " +
-            "files with options '--gfasta', '--bwa_index', '--dbsnp', '--hapmap', '--mills', '--thousandg', '--omni' and '--target'"
+            "files with options '--gfasta', '--bwa_index', '--dbsnp', '--hapmap', '--omni' and '--target'"
 }
 
 // Has the run name been specified by the user?
@@ -171,7 +168,7 @@ process fastqc {
     set val(sample), file(reads) from raw_reads_fastqc
 
     output:
-    file '*_fastqc.{zip,html}' into fastqc_results,fastqc_results2
+    file '*_fastqc.{zip,html}' into fastqc_results
 
     script:
     sample_name = sample - ~/(_S\d*)?(_L\d*)?$/
@@ -187,7 +184,6 @@ process fastqc {
 if(params.notrim){
     trimmed_reads = read_files_trimming
     trimgalore_results = []
-    trimgalore_results2 = []
     trimgalore_fastqc_reports = []
 } else {
     process trim_galore {
@@ -205,7 +201,7 @@ if(params.notrim){
 
         output:
         set val(sample), file('*.fq.gz') into trimmed_reads_bwa, trimmed_reads_sam
-        file '*trimming_report.txt' into trimgalore_results,trimgalore_results2
+        file '*trimming_report.txt' into trimgalore_results
         file "*_fastqc.{zip,html}" into trimgalore_fastqc_reports
 
         script:
@@ -369,7 +365,7 @@ process mergeSampleBam {
     set val(sample), file(sample_bam) from lanes_sorted_bam_group
 
     output:
-    set val(sample), file("${sample}_sorted.bam")  into samples_sorted_bam
+    set val(sample), file("${sample}_sorted.bam") into samples_sorted_bam
 
     script:
     if (sample_bam.properties.target)
@@ -387,7 +383,7 @@ process mergeSampleBam {
             QUIET=false \\
             COMPRESSION_LEVEL=5 \\
             MAX_RECORDS_IN_RAM=500000 \\
-            CREATE_INDEX=true \\
+            CREATE_INDEX=false \\
             CREATE_MD5_FILE=false
         """
     else
@@ -395,7 +391,6 @@ process mergeSampleBam {
         cp $sample_bam ${sample}_sorted.bam
         """
 }
-
 
 if(!params.skip_markduplicates){
 
@@ -406,7 +401,7 @@ if(!params.skip_markduplicates){
 	        saveAs: { filename -> filename.indexOf(".dup_metrics") > 0 ? filename : null }
 	
 	    input:
-	    set val(sample), file(sorted_bam)  from samples_sorted_bam
+	    set val(sample), file(sorted_bam) from samples_sorted_bam
 	
 	    output:
 	    set val(sample), file("${sample}_markdup.bam") into samples_markdup_bam
@@ -437,123 +432,117 @@ if(!params.skip_markduplicates){
 	    """
 	}
 
-	/*
-	 * Recalibrate BAM file with known variants and BaseRecalibrator
-	 *
-	*/
-
 	process recalibrate {
-	    tag "${sample}"
-
+	    tag "$sample"
+	
 	    input:
 	    set val(sample), file(markdup_bam) from samples_markdup_bam
 	
 	    output:
-	    set val(sample), file("${sample}_recal.bam"), file("${sample}_recal.bai") into bam_vcall, bam_phasing, bam_metrics, bam_qualimap
-	    file '.command.log' into gatk_base_recalibration_results,gatk_base_recalibration_results2
-		
+	    set val(sample), file("${sample}_recal.bam"), file("${sample}_recal.bai") into samples_recal_bam
+	    file '.command.log' into gatk_base_recalibration_results
+	
 	    script:
 	    """
-	    gatk BaseRecalibrator \\
+	    gatk -T BaseRecalibrator \\
 	        -I $markdup_bam \\
 	        -R $params.gfasta \\
-	        -O ${sample}_table.recal \\
-	        -L $params.target \\
-	        -ip 100 \\
-		--known-sites $params.dbsnp \\
-	        --verbosity INFO \\
-	        --java-options -Xmx${task.memory.toGiga()}g
-
-	    gatk ApplyBQSR \\
-	        -R $params.gfasta \\
+	        -o ${sample}_table.recal \\
+	        -cov ReadGroupCovariate \\
+	        -cov QualityScoreCovariate \\
+	        -cov CycleCovariate \\
+	        -cov ContextCovariate \\
+	        -U \\
+	        -OQ \\
+	        --default_platform illumina \\
+	        --knownSites $params.dbsnp \\
+	        -l INFO
+	
+	    gatk -T PrintReads \\
+	        -BQSR ${sample}_table.recal \\
 	        -I $markdup_bam \\
-	        --bqsr-recal-file ${sample}_table.recal \\
-	        -O ${sample}_recal.bam \\
-	        -L $params.target \\
-	        -ip 100 \\
-	        --create-output-bam-index true \\
-	        --java-options -Xmx${task.memory.toGiga()}g
-
+	        -R $params.gfasta \\
+	        -o ${sample}_recal.bam \\
+	        -baq RECALCULATE \\
+	        -U \\
+	        -OQ \\
+	        -l INFO
 	    """
 	}
-
 }else{
 
 	// Recalibrate the bam file with known variants
 	process recalibrate_wo_markdup {
-	    tag "${sample}"
-
+	    tag "$sample"
+	
 	    input:
 	    set val(sample), file(sorted_bam) from samples_sorted_bam
 	
 	    output:
-	    set val(sample), file("${sample}_recal.bam"), file("${sample}_recal.bai") into bam_vcall, bam_phasing, bam_metrics, bam_qualimap
-	    file '.command.log' into gatk_base_recalibration_results,gatk_base_recalibration_results2
-		
+	    set val(sample), file("${sample}_recal.bam"), file("${sample}_recal.bai") into samples_recal_bam
+	    file '.command.log' into gatk_base_recalibration_results
+	
 	    script:
 	    """
-	    gatk BaseRecalibrator \\
+	    gatk -T BaseRecalibrator \\
 	        -I $sorted_bam \\
 	        -R $params.gfasta \\
-	        -O ${sample}_table.recal \\
-	        -L $params.target \\
-	        -ip 100 \\
-	        --known-sites $params.dbsnp \\
-	        --verbosity INFO \\
-	        --java-options -Xmx${task.memory.toGiga()}g
-
-	    gatk ApplyBQSR \\
-	        -R $params.gfasta \\
+	        -o ${sample}_table.recal \\
+	        -cov ReadGroupCovariate \\
+	        -cov QualityScoreCovariate \\
+	        -cov CycleCovariate \\
+	        -cov ContextCovariate \\
+	        -U \\
+	        -OQ \\
+	        --default_platform illumina \\
+	        --knownSites $params.dbsnp \\
+	        -l INFO
+	
+	    gatk -T PrintReads \\
+	        -BQSR ${sample}_table.recal \\
 	        -I $sorted_bam \\
-	        --bqsr-recal-file ${sample}_table.recal \\
-	        -O ${sample}_recal.bam \\
-	        -L $params.target \\
-	        -ip 100 \\
-	        --create-output-bam-index true \\
-	        --java-options -Xmx${task.memory.toGiga()}g
-
+	        -R $params.gfasta \\
+	        -o ${sample}_recal.bam \\
+	        -baq RECALCULATE \\
+	        -U \\
+	        -OQ \\
+	        -l INFO
 	    """
 	}
 }
 
-/*
- * Determine quality metrics of mapped BAM files using QualiMap 2
- *
-*/
-process qualiMap {
-    tag "${sample}"
-    publishDir "${params.outdir}/${sample}/qualimap", mode: 'copy'
+// Realign the bam files based on known variants
+process realign {
+    tag "$sample"
+    publishDir "${params.outdir}/${sample}/alignment", mode: 'copy',
+        saveAs: {filename -> filename.replaceFirst(/realign/, "sorted_dupmarked_recalibrated_realigned")}
 
     input:
-    set val(sample), file(recal_bam), file(recal_bam_ind) from bam_qualimap
+    set val(sample), file(recal_bam), file(recal_bam_ind) from samples_recal_bam
 
     output:
-    file "${sample}" into qualimap_results,qualimap_results2
-    file '.command.log' into qualimap_stdout
+    set val(sample), file("${sample}_realign.bam"), file("${sample}_realign.bai") into bam_vcall, bam_phasing, bam_metrics
+    file '.command.log' into gatk_base_realign_results
 
     script:
-    gcref = ''
-    if(params.genome == 'GRCh37') gcref = '-gd HUMAN'
-    if(params.genome == 'GRCh38') gcref = '-gd HUMAN'
-    if(params.genome == 'GRCm38') gcref = '-gd MOUSE'
     """
-    qualimap bamqc $gcref \\
-    -bam $recal_bam \\
-    -outdir ${sample} \\
-    --skip-duplicated \\
-    --collect-overlap-pairs \\
-    --outside-stats \\
-    -nt ${task.cpus} \\
-    -gff ${params.target_bed} \\
-    --java-mem-size=${task.memory.toGiga()}G \\
+    gatk -T RealignerTargetCreator \\
+        -I $recal_bam \\
+        -R $params.gfasta \\
+        -o ${sample}_realign.intervals \\
+        --known $params.dbsnp \\
+        -l INFO
+
+    gatk -T IndelRealigner \\
+        -I $recal_bam \\
+        -R $params.gfasta \\
+        -targetIntervals ${sample}_realign.intervals \\
+        -o ${sample}_realign.bam \\
+        -l INFO
     """
 }
 
-
-/*
- *  Calculate certain metrics
-*/
-
+// Calculate certain metrics
 process calculateMetrics {
     tag "$sample"
     publishDir "${params.outdir}/${sample}/metrics", mode: 'copy'
@@ -563,7 +552,6 @@ process calculateMetrics {
 
     output:
     file("*{metrics,pdf}") into metric_files
-    file "*metrics" into metric_results,metric_results2
 
     script:
     """
@@ -620,7 +608,6 @@ process calculateMetrics {
     """
 }
 
-
 // Call variants
 process variantCall {
     tag "$sample"
@@ -628,58 +615,26 @@ process variantCall {
         saveAs: {filename -> filename.replaceFirst(/variants/, "raw_variants")}
 
     input:
-    set val(sample), file(recal_bam), file(recal_bam_ind) from bam_vcall
+    set val(sample), file(realign_bam), file(realign_bam_ind) from bam_vcall
 
     output:
-    set val(sample), file("${sample}_variants.vcf"), file("${sample}_variants.vcf.idx") into raw_variants_gvcf, raw_variants
+    set val(sample), file("${sample}_variants.vcf"), file("${sample}_variants.vcf.idx") into raw_variants
 
     script:
     """
-    gatk HaplotypeCaller \\
-        -I $recal_bam \\
+    gatk -T HaplotypeCaller \\
+        -I $realign_bam \\
         -R $params.gfasta \\
-        -O ${sample}_variants.vcf \\
-        -ERC GVCF \\
-        -L $params.target \\
-        --create-output-variant-index \\
-        -ip 100 \\
-	--annotation MappingQualityRankSumTest \\
+        -o ${sample}_variants.vcf \\
+        --annotation HaplotypeScore \\
+        --annotation MappingQualityRankSumTest \\
         --annotation QualByDepth \\
         --annotation ReadPosRankSumTest \\
         --annotation RMSMappingQuality \\
         --annotation FisherStrand \\
         --annotation Coverage \\
-        --dbsnp $params.dbsnp \\
-        --verbosity INFO \\
-        --java-options -Xmx${task.memory.toGiga()}g
-    """
-}
-
-
-/*
- * Genotype generate GVCFs using GATK's GenotypeGVCFs
- * 
-*/ 
-
-process genotypegvcfs{
-    tag "$sample"
-    publishDir "${params.outdir}/${sample}/variants", mode: 'copy' 
-
-    input:
-    set val(sample), file(raw_vcf), file(raw_vcf_idx) from raw_variants_gvcf
-
-    output:
-    set val(sample), file("${sample}_gvcf.vcf"), file("${sample}_gvcf.vcf.idx") into raw_gvcfs
-
-    script:
-    """
-    gatk GenotypeGVCFs \\
-    -R $params.gfasta \\
-    -L $params.target \\
-    -ip 100 \\
-    --dbsnp $params.dbsnp \\
-    -V $raw_vcf \\
-    -O ${sample}_gvcf.vcf 
+        --standard_min_confidence_threshold_for_calling 30.0 \\
+        --dbsnp $params.dbsnp -l INFO
     """
 }
 
@@ -688,7 +643,7 @@ process variantSelect {
     tag "$sample"
 
     input:
-    set val(sample), file(raw_gvcf), file(raw_gvcf_idx) from raw_gvcfs
+    set val(sample), file(raw_vcf), file(raw_vcf_idx) from raw_variants
 
     output:
     set val(sample), file("${sample}_snp.vcf"), file("${sample}_snp.vcf.idx") into raw_snp
@@ -696,28 +651,25 @@ process variantSelect {
 
     script:
     """
-    gatk SelectVariants \\
+    gatk -T SelectVariants \\
         -R $params.gfasta \\
-        -V $raw_gvcf \\
-        -O ${sample}_snp.vcf \\
-        --select-type-to-include SNP
+        --variant $raw_vcf \\
+        --out ${sample}_snp.vcf \\
+        --selectTypeToInclude SNP
 
-    gatk SelectVariants \\
+    gatk -T SelectVariants \\
         -R $params.gfasta \\
-        -V $raw_gvcf \\
-        -O ${sample}_indels.vcf \\
-        --select-type-to-include INDEL \\
-        --select-type-to-include MIXED \\
-        --select-type-to-include MNP \\
-        --select-type-to-include SYMBOLIC \\
-        --select-type-to-include NO_VARIATION
+        --variant $raw_vcf \\
+        --out ${sample}_indels.vcf \\
+        --selectTypeToInclude INDEL \\
+        --selectTypeToInclude MIXED \\
+        --selectTypeToInclude MNP \\
+        --selectTypeToInclude SYMBOLIC \\
+        --selectTypeToInclude NO_VARIATION
     """
 }
 
-
-// Hard-filter SNPs
-// thresholds suggested in https://software.broadinstitute.org/gatk/documentation/article?id=11097
-// more info here: https://software.broadinstitute.org/gatk/documentation/article.php?id=6925
+// Filter SNP
 process filterSnp {
     tag "$sample"
     publishDir "${params.outdir}/${sample}/variants", mode: 'copy'
@@ -730,22 +682,31 @@ process filterSnp {
 
     script:
     """
-    gatk VariantFiltration \\
+    gatk -T VariantRecalibrator \\
         -R $params.gfasta \\
-        -V $raw_snp \\
-        -O ${sample}_filtered_snp.vcf \\
-        --filter-name GATKStandardQD \\
-        --filter-expression "QD < 2.0" \\
-        --filter-name GATKStandardMQ \\
-        --filter-expression "MQ < 40.0" \\
-        --filter-name GATKStandardFS \\
-        --filter-expression "FS > 60.0" \\
-        --filter-name GATKStandardReadPosRankSum \\
-        --filter-expression "ReadPosRankSum < -8.0"
+        --input $raw_snp \\
+        --maxGaussians 4 \\
+        --recal_file ${sample}_snp.recal \\
+        --tranches_file ${sample}_snp.tranches \\
+        -resource:hapmap,VCF,known=false,training=true,truth=true,prior=15.0 $params.hapmap \\
+        -resource:omni,VCF,known=false,training=true,truth=false,prior=12.0 $params.omni \\
+        -resource:dbsnp,VCF,known=true,training=false,truth=false,prior=8.0 $params.dbsnp \\
+        --mode SNP \\
+        -an QD \\
+        -an FS \\
+        -an MQ
+
+    gatk -T ApplyRecalibration \\
+        -R $params.gfasta \\
+        --out ${sample}_filtered_snp.vcf \\
+        --input $raw_snp \\
+        --mode SNP \\
+        --tranches_file ${sample}_snp.tranches \\
+        --recal_file ${sample}_snp.recal
     """
 }
 
-// Hard-filter indels
+// Filter indels
 process filterIndel {
     tag "$sample"
     publishDir "${params.outdir}/${sample}/variants", mode: 'copy'
@@ -758,19 +719,18 @@ process filterIndel {
 
     script:
     """
-    gatk VariantFiltration \\
+    gatk -T VariantFiltration \\
         -R $params.gfasta \\
-        -V $raw_indel \\
-        -O ${sample}_filtered_indels.vcf \\
-        --filter-name GATKStandardQD \\
-        --filter-expression "QD < 2.0" \\
-        --filter-name GATKStandardReadPosRankSum \\
-        --filter-expression "ReadPosRankSum < -20.0" \\
-        --filter-name GATKStandardFS \\
-        --filter-expression "FS > 200.0"
+        --variant $raw_indel \\
+        --out ${sample}_filtered_indels.vcf \\
+        --filterName GATKStandardQD \\
+        --filterExpression "QD < 2.0" \\
+        --filterName GATKStandardReadPosRankSum \\
+        --filterExpression "ReadPosRankSum < -20.0" \\
+        --filterName GATKStandardFS \\
+        --filterExpression "FS > 200.0"
     """
 }
-
 
 // Group filted snp and indels for each sample
 filtered_snp
@@ -786,17 +746,47 @@ process combineVariants {
     set val(sample), file(fsnp), file(fsnp_idx), file(findel), file(findel_idx) from variants_filtered
 
     output:
-    set val(sample), file("${sample}_combined_variants.vcf"), file("${sample}_combined_variants.vcf.idx") into vcf_eval, vcf_anno
+    set val(sample), file("${sample}_combined_variants.vcf"), file("${sample}_combined_variants.vcf.idx") into combined_variants
 
     script:
     """
-    picard MergeVcfs \\
-        O=${sample}_combined_variants.vcf \\
-        I=$fsnp \\
-        I=$findel \\
+    gatk -T CombineVariants \\
+        -R $params.gfasta \\
+        --out ${sample}_combined_variants.vcf \\
+        --genotypemergeoption PRIORITIZE \\
+        --variant:${sample}_SNP_filtered $fsnp \\
+        --variant:${sample}_indels_filtered $findel \\
+        --rod_priority_list ${sample}_SNP_filtered,${sample}_indels_filtered
     """
 }
 
+
+// Group filted bam and vcf for each sample for phasing
+bam_phasing
+    .cross(combined_variants)
+    .map{ it -> [it[0][0], it[0][1], it[0][2], it[1][1], it[1][2]] }
+    .set{ files_for_phasing }
+
+// Indetifying haplotypes and create phasing between them
+process haplotypePhasing {
+    tag "$sample"
+    publishDir "${params.outdir}/${sample}/variants", mode: 'copy'
+
+    input:
+    set val(sample), file(bam), file(bam_ind), file(vcf), file(vcf_ind) from files_for_phasing
+
+    output:
+    set val(sample), file("${sample}_combined_phased_variants.vcf"), file("${sample}_combined_phased_variants.vcf.idx") into vcf_eval, vcf_anno
+
+    script:
+    """
+    gatk -T ReadBackedPhasing \\
+        -R $params.gfasta \\
+        -I $bam \\
+        --variant $vcf \\
+        --out ${sample}_combined_phased_variants.vcf
+    """
+}
 
 // Evaluate variants
 process variantEvaluate {
@@ -808,7 +798,7 @@ process variantEvaluate {
 
     output:
     file "${sample}_combined_phased_variants.eval"
-    file "${sample}_combined_phased_variants.eval" into gatk_variant_eval_results,gatk_variant_eval_results2
+    file "${sample}_combined_phased_variants.eval" into gatk_variant_eval_results
 
     script:
     """
@@ -818,8 +808,7 @@ process variantEvaluate {
         --dbsnp $params.dbsnp \\
         -o ${sample}_combined_phased_variants.eval \\
         -L $params.target \\
-        -ip 100 \\
-	--doNotUseAllStandardModules \\
+        --doNotUseAllStandardModules \\
         --evalModule TiTvVariantEvaluator \\
         --evalModule CountVariants \\
         --evalModule CompOverlap \\
@@ -851,24 +840,33 @@ process variantAnnotate {
 
     output:
     file "*.{vcf,idx,snpeff}"
-    file '*_SnpEffStats.csv' into snpeff_results,snpeff_results2
+    file 'SnpEffStats.csv' into snpeff_results
 
     script:
     """
+#    snpEff \\
+#        -c /shared/ucl/depts/cancer/apps/miniconda/3/share/snpeff-4.3.1t-1/snpEff.config \\
+#        -i vcf \\
+#        -o gatk \\
+#        -o vcf \\
+#        -filterInterval $params.target_bed GRCh37.75 $phased_vcf \\
+#            > ${sample}_combined_phased_variants.snpeff
+
     java -jar -Xmx${task.memory.toGiga()}g  \\
 	/shared/ucl/depts/cancer/apps/miniconda/3/share/snpeff-4.3.1t-1/snpEff.jar  \\
         -c /shared/ucl/depts/cancer/apps/miniconda/3/share/snpeff-4.3.1t-1/snpEff.config \\
-        -csvStats ${sample}_SnpEffStats.csv \\
+        -csvStats SnpEffStats.csv \\
         -i vcf \\
         -o gatk \\
         -o vcf \\
+        -csvStats SnpEffStats.csv \\
         -filterInterval $params.target_bed ${snpeffDb} $phased_vcf \\
             > ${sample}_combined_phased_variants.snpeff
 
     gatk -T VariantAnnotator \\
         -R $params.gfasta \\
         -A SnpEff \\
-        -V $phased_vcf \\
+        --variant $phased_vcf \\
         --snpEffFile ${sample}_combined_phased_variants.snpeff \\
         --out ${sample}_combined_phased_annotated_variants.vcf
     """
@@ -933,14 +931,13 @@ ${summary.collect { k,v -> "            <dt>$k</dt><dd><samp>${v ?: '<span style
 }
 
 
-
 /*
  * Parse software version numbers
  */
 process get_software_versions {
 
     output:
-    file 'software_versions_mqc.yaml' into software_versions_yaml,software_versions_yaml2
+    file 'software_versions_mqc.yaml' into software_versions_yaml
 
     script:
     """
@@ -950,7 +947,6 @@ process get_software_versions {
     trim_galore --version > v_trim_galore.txt
     echo \$(bwa 2>&1) > v_bwa.txt
     picard MarkDuplicates --version &> v_picard.txt  || true
-    qualimap --help > v_qualimap.txt
     gatk ApplyBQSR --help 2>&1 | grep Version: > v_gatk.txt 2>&1 || true
     multiqc --version > v_multiqc.txt
     scrape_software_versions.py > software_versions_mqc.yaml
@@ -972,12 +968,10 @@ if(!params.skip_markduplicates){
 	    file ('fastqc/*') from fastqc_results.collect()
 	    file ('trimgalore/*') from trimgalore_results.collect()
 	    file ('picard/*') from dup_metric_files.collect()
-	    file ('metrics/*') from metric_results.collect()
-	    file ('qualimap/*') from qualimap_results.collect()
 	    file ('gatk_base_recalibration/T*') from gatk_base_recalibration_results.collect()
-	    file ('snpeff/*') from snpeff_results.collect()
+	    file ('snpEff/*') from snpeff_results.collect()
 	    file ('gatk_variant_eval/*') from gatk_variant_eval_results.collect()
-	    file software_versions from software_versions_yaml.collect()
+	    file ('software_versions/*') from software_versions_yaml
 	    file workflow_summary from create_workflow_summary(summary)
 	
 	    output:
@@ -997,18 +991,16 @@ if(!params.skip_markduplicates){
 	
 	    input:
 	    file multiqc_config
-	    file ('fastqc/*') from fastqc_results2.collect()
-	    file ('trimgalore/*') from trimgalore_results2.collect()
-	    file ('metrics/*') from metric_results2.collect()
-	    file ('qualimap/*') from qualimap_results2.collect()
-	    file ('gatk_base_recalibration/T*') from gatk_base_recalibration_results2.collect()
-	    file ('snpeff/*') from snpeff_results2.collect()
-	    file ('gatk_variant_eval/*') from gatk_variant_eval_results2.collect()
-	    file software_versions from software_versions_yaml2.collect()
+	    file ('fastqc/*') from fastqc_results.collect()
+	    file ('trimgalore/*') from trimgalore_results.collect()
+	    file ('gatk_base_recalibration/T*') from gatk_base_recalibration_results.collect()
+	    file ('snpEff/*') from snpeff_results.collect()
+	    file ('gatk_variant_eval/*') from gatk_variant_eval_results.collect()
+	    file ('software_versions/*') from software_versions_yaml
 	    file workflow_summary from create_workflow_summary(summary)
 	
 	    output:
-	    file "*multiqc_report.html" into multiqc_report2
+	    file "*multiqc_report.html" into multiqc_report
 	    file "*_data"
 	
 	    script:
