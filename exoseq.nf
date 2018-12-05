@@ -409,7 +409,7 @@ if(!params.skip_markduplicates){
 	    set val(sample), file(sorted_bam)  from samples_sorted_bam
 	
 	    output:
-	    set val(sample), file("${sample}_markdup.bam") into samples_markdup_bam
+	    set val(sample), file("${sample}_markdup.bam"), file("${sample}_markdup.bai") into samples_markdup_bam
 	    file "${sample}.dup_metrics" into dup_metric_files
 	
 	    script:
@@ -430,7 +430,7 @@ if(!params.skip_markduplicates){
 	        VERBOSITY=INFO \\
 	        QUIET=false \\
 	        COMPRESSION_LEVEL=5 \\
-	        CREATE_INDEX=false \\
+	        CREATE_INDEX=true \\
 	        MAX_RECORDS_IN_RAM=500000 \\
 	        CREATE_MD5_FILE=false \\
 	        GA4GH_CLIENT_SECRETS=''
@@ -446,7 +446,7 @@ if(!params.skip_markduplicates){
 	    tag "${sample}"
 
 	    input:
-	    set val(sample), file(markdup_bam) from samples_markdup_bam
+	    set val(sample), file(markdup_bam), file(markdup_bam_ind) from samples_markdup_bam
 	
 	    output:
 	    set val(sample), file("${sample}_recal.bam"), file("${sample}_recal.bai") into bam_vcall, bam_phasing, bam_metrics, bam_qualimap
