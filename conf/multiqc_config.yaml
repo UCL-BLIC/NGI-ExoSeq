@@ -19,5 +19,9 @@ module_order:
     - snpeff
     - NGI-exoseq-summary
     - NGI-exoseq
-
+report_section_order:
+    NGI-exoseq-summary:
+        order: -1000
+    NGI-exoseq:
+        order: -1100
 plots_force_interactive: true
