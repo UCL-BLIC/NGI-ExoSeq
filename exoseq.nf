@@ -862,7 +862,7 @@ process variantAnnotate {
         -i vcf \\
         -o gatk \\
         -o vcf \\
-        -filterInterval $params.target_bed ${snpeffDb} $phased_vcf \\
+	${snpeffDb} $phased_vcf \\
             > ${sample}_combined_phased_variants.snpeff
 
     gatk -T VariantAnnotator \\
