@@ -850,7 +850,7 @@ process variantAnnotate {
     val snpeffDb from Channel.value(params.metaFiles[ params.genome ].snpeffDb)
 
     output:
-    file "*.{vcf,idx,snpeff}"
+    file "*.{vcf,idx}"
     file '*_SnpEffStats.csv' into snpeff_results,snpeff_results2
 
     script:
@@ -863,14 +863,7 @@ process variantAnnotate {
         -o gatk \\
         -o vcf \\
 	${snpeffDb} $phased_vcf \\
-            > ${sample}_combined_phased_variants.snpeff
-
-    gatk -T VariantAnnotator \\
-        -R $params.gfasta \\
-        -A SnpEff \\
-        -V $phased_vcf \\
-        --snpEffFile ${sample}_combined_phased_variants.snpeff \\
-        --out ${sample}_combined_phased_annotated_variants.vcf
+            > ${sample}_combined_phased_annotated_variants.vcf
     """
 }
 
