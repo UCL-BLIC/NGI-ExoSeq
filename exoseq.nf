@@ -850,7 +850,7 @@ process variantAnnotate {
     val snpeffDb from Channel.value(params.metaFiles[ params.genome ].snpeffDb)
 
     output:
-    file "*.{vcf,idx}"
+    file "*.{vcf,idx,SnpEffStats.genes.txt}"
     file '*_SnpEffStats.csv' into snpeff_results,snpeff_results2
 
     script:
