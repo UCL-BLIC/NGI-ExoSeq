@@ -449,7 +449,7 @@ if(!params.skip_markduplicates){
 	    set val(sample), file(markdup_bam), file(markdup_bam_ind) from samples_markdup_bam
 	
 	    output:
-	    set val(sample), file("${sample}_recal.bam"), file("${sample}_recal.bai") into bam_vcall, bam_phasing, bam_metrics, bam_qualimap
+	    set val(sample), file("${sample}_recal.bam"), file("${sample}_recal.bai") into bam_vcall, bam_phasing, bam_metrics, bam_qualimap, bam_bigwig
 	    file '.command.log' into gatk_base_recalibration_results,gatk_base_recalibration_results2
 		
 	    script:
@@ -487,7 +487,7 @@ if(!params.skip_markduplicates){
 	    set val(sample), file(sorted_bam) from samples_sorted_bam
 	
 	    output:
-	    set val(sample), file("${sample}_recal.bam"), file("${sample}_recal.bai") into bam_vcall, bam_phasing, bam_metrics, bam_qualimap
+	    set val(sample), file("${sample}_recal.bam"), file("${sample}_recal.bai") into bam_vcall, bam_phasing, bam_metrics, bam_qualimap, bam_bigwig
 	    file '.command.log' into gatk_base_recalibration_results,gatk_base_recalibration_results2
 		
 	    script:
@@ -617,6 +617,29 @@ process calculateMetrics {
         CREATE_INDEX=false \\
         CREATE_MD5_FILE=false \\
         GA4GH_CLIENT_SECRETS=''
+    """
+}
+
+
+// Get bigwigs
+
+process bigwigs {
+    tag "$sample"
+    publishDir "${params.outdir}/${sample}/bigwigs", mode: 'copy'
+
+    input:
+    set val(sample), file(recal_bam), file(recal_bam_ind) from bam_bigwig
+
+    output:
+    file '*.bw'
+
+    script:
+    fasta=params.gfasta
+    fastafai="${fasta}.fai"
+    """
+    bedtools genomecov -bg -ibam $bam -g $fastafai > ${sample}.bdg
+    LC_COLLATE=C sort -k1,1 -k2,2n ${sample}.bdg > ${sample}.sorted.bdg
+    bedGraphToBigWig ${sample}.sorted.bdg $fastafai ${sample}.bw
     """
 }
 
