@@ -359,6 +359,7 @@ lanes_sorted_bam
     .groupTuple()
     .set{ lanes_sorted_bam_group }
 
+
 // Merge all bam files from lanes to one bam per sample
 process mergeSampleBam {
     tag "$sample"
@@ -369,7 +370,7 @@ process mergeSampleBam {
     set val(sample), file(sample_bam) from lanes_sorted_bam_group
 
     output:
-    set val(sample), file("${sample}_sorted.bam")  into samples_sorted_bam
+    set val(sample), file("${sample}_sorted.bam"), file("${sample}_sorted.bai")  into samples_sorted_bam, samples_sorted_bam_bigwig
 
     script:
     if (sample_bam.properties.target)
@@ -394,6 +395,28 @@ process mergeSampleBam {
         """
         cp $sample_bam ${sample}_sorted.bam
         """
+}
+
+// Get bigwigs
+
+process bigwigs {
+    tag "$sample"
+    publishDir "${params.outdir}/${sample}/alignment", mode: 'copy'
+
+    input:
+    set val(sample), file(raw_bam), file(raw_bam_ind) from samples_sorted_bam_bigwig
+
+    output:
+    file '*.bw'
+
+    script:
+    fasta=params.gfasta
+    fastafai="${fasta}.fai"
+    """
+    bedtools genomecov -bg -ibam $raw_bam -g $fastafai > ${sample}.bdg
+    LC_COLLATE=C sort -k1,1 -k2,2n ${sample}.bdg > ${sample}.sorted.bdg
+    bedGraphToBigWig ${sample}.sorted.bdg $fastafai ${sample}_raw_sorted.bw
+    """
 }
 
 
@@ -449,7 +472,7 @@ if(!params.skip_markduplicates){
 	    set val(sample), file(markdup_bam), file(markdup_bam_ind) from samples_markdup_bam
 	
 	    output:
-	    set val(sample), file("${sample}_recal.bam"), file("${sample}_recal.bai") into bam_vcall, bam_phasing, bam_metrics, bam_qualimap, bam_bigwig
+	    set val(sample), file("${sample}_recal.bam"), file("${sample}_recal.bai") into bam_vcall, bam_phasing, bam_metrics, bam_qualimap
 	    file '.command.log' into gatk_base_recalibration_results,gatk_base_recalibration_results2
 		
 	    script:
@@ -487,7 +510,7 @@ if(!params.skip_markduplicates){
 	    set val(sample), file(sorted_bam) from samples_sorted_bam
 	
 	    output:
-	    set val(sample), file("${sample}_recal.bam"), file("${sample}_recal.bai") into bam_vcall, bam_phasing, bam_metrics, bam_qualimap, bam_bigwig
+	    set val(sample), file("${sample}_recal.bam"), file("${sample}_recal.bai") into bam_vcall, bam_phasing, bam_metrics, bam_qualimap
 	    file '.command.log' into gatk_base_recalibration_results,gatk_base_recalibration_results2
 		
 	    script:
@@ -559,7 +582,7 @@ process calculateMetrics {
     publishDir "${params.outdir}/${sample}/metrics", mode: 'copy'
 
     input:
-    set val(sample), file(aligned_bam), file(aligned_bam_ind) from bam_metrics
+    set val(sample), file(recal_bam), file(recal_bam_ind) from bam_metrics
 
     output:
     file("*{metrics,pdf}") into metric_files
@@ -568,7 +591,7 @@ process calculateMetrics {
     script:
     """
     picard CollectAlignmentSummaryMetrics \\
-        INPUT=$aligned_bam \\
+        INPUT=$recal_bam \\
         OUTPUT=${sample}.align_metrics \\
         REFERENCE_SEQUENCE=$params.gfasta \\
         VALIDATION_STRINGENCY=SILENT \\
@@ -587,7 +610,7 @@ process calculateMetrics {
 
     picard CollectInsertSizeMetrics \\
         HISTOGRAM_FILE=${sample}_insert.pdf \\
-        INPUT=$aligned_bam \\
+        INPUT=$recal_bam \\
         OUTPUT=${sample}.insert_metrics \\
         VALIDATION_STRINGENCY=SILENT \\
         DEVIATIONS=10.0 \\
@@ -606,7 +629,7 @@ process calculateMetrics {
     picard CollectHsMetrics \\
         BAIT_INTERVALS=$params.bait \\
         TARGET_INTERVALS=$params.target \\
-        INPUT=$aligned_bam \\
+        INPUT=$recal_bam \\
         OUTPUT=${sample}.hs_metrics \\
         METRIC_ACCUMULATION_LEVEL="ALL_READS" \\
         VERBOSITY=INFO \\
@@ -617,29 +640,6 @@ process calculateMetrics {
         CREATE_INDEX=false \\
         CREATE_MD5_FILE=false \\
         GA4GH_CLIENT_SECRETS=''
-    """
-}
-
-
-// Get bigwigs
-
-process bigwigs {
-    tag "$sample"
-    publishDir "${params.outdir}/${sample}/bigwigs", mode: 'copy'
-
-    input:
-    set val(sample), file(recal_bam), file(recal_bam_ind) from bam_bigwig
-
-    output:
-    file '*.bw'
-
-    script:
-    fasta=params.gfasta
-    fastafai="${fasta}.fai"
-    """
-    bedtools genomecov -bg -ibam $bam -g $fastafai > ${sample}.bdg
-    LC_COLLATE=C sort -k1,1 -k2,2n ${sample}.bdg > ${sample}.sorted.bdg
-    bedGraphToBigWig ${sample}.sorted.bdg $fastafai ${sample}.bw
     """
 }
 
