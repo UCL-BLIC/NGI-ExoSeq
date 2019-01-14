@@ -418,7 +418,7 @@ process bigwigs {
     bedtools genomecov -bg -ibam $raw_bam -g $fastafai > ${sample}_raw.bdg
     LC_COLLATE=C sort -k1,1 -k2,2n ${sample}_raw.bdg > ${sample}.raw_sorted.bdg
     perl -p -i -e 's/^/chr/g' ${sample}.raw_sorted.bdg
-    bedGraphToBigWig ${sample}.sorted.bdg $fastafaiucsc ${sample}_raw_sorted.bw
+    bedGraphToBigWig ${sample}.raw_sorted.bdg $fastafaiucsc ${sample}_raw_sorted.bw
     """
 }
 
