@@ -407,14 +407,14 @@ process bigwigs {
     set val(sample), file(raw_bam), file(raw_bam_ind) from samples_sorted_bam_bigwig
 
     output:
-    file '*.bdg'
+    file '*raw_sorted.bdg'
 
     script:
     fasta=params.gfasta
     fastafai="${fasta}.fai"
     """
     bedtools genomecov -bg -ibam $raw_bam -g $fastafai > ${sample}_raw.bdg
-    LC_COLLATE=C sort -k1,1 -k2,2n ${sample}.bdg > ${sample}.raw_sorted.bdg
+    LC_COLLATE=C sort -k1,1 -k2,2n ${sample}_raw.bdg > ${sample}.raw_sorted.bdg
     perl -p -i -e 's/^/chr/g' ${sample}.raw_sorted.bdg
     ######bedGraphToBigWig ${sample}.sorted.bdg $fastafai ${sample}_raw_sorted.bw
     """
