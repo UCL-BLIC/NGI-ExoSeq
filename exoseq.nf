@@ -103,6 +103,7 @@ params.mills = params.metaFiles[ params.genome ] ? params.metaFiles[ params.geno
 params.thousandg = params.metaFiles[ params.genome ] ? params.metaFiles[ params.genome ].thousandg ?: false : false
 params.omni = params.metaFiles[ params.genome ] ? params.metaFiles[ params.genome ].omni ?: false : false
 params.gfasta = params.metaFiles[ params.genome ] ? params.metaFiles[ params.genome ].gfasta ?: false : false
+params.gfasta_fai_ucsc = params.metaFiles[ params.genome ] ? params.metaFiles[ params.genome ].gfasta_fai_ucsc ?: false : false
 params.bwa_index = params.metaFiles[ params.genome ] ? params.metaFiles[ params.genome ].bwa_index ?: false : false
 
 // Show help when needed
@@ -407,16 +408,17 @@ process bigwigs {
     set val(sample), file(raw_bam), file(raw_bam_ind) from samples_sorted_bam_bigwig
 
     output:
-    file '*raw_sorted.bdg'
+    file '*.bw'
 
     script:
     fasta=params.gfasta
     fastafai="${fasta}.fai"
+    fastafaiucsc=params.gfasta_fai_ucsc
     """
     bedtools genomecov -bg -ibam $raw_bam -g $fastafai > ${sample}_raw.bdg
     LC_COLLATE=C sort -k1,1 -k2,2n ${sample}_raw.bdg > ${sample}.raw_sorted.bdg
     perl -p -i -e 's/^/chr/g' ${sample}.raw_sorted.bdg
-    ######bedGraphToBigWig ${sample}.sorted.bdg $fastafai ${sample}_raw_sorted.bw
+    bedGraphToBigWig ${sample}.sorted.bdg $fastafaiucsc ${sample}_raw_sorted.bw
     """
 }
 
