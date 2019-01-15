@@ -25,4 +25,4 @@ report_section_order:
         order: -1000
     NGI-exoseq:
         order: -1100
-plots_force_interactive: true
+plots_force_interactive: false
