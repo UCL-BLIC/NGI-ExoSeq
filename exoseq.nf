@@ -374,7 +374,7 @@ process mergeSampleBam {
     set val(sample), file("${sample}_sorted.bam"), file("${sample}_sorted.bai")  into samples_sorted_bam, samples_sorted_bam_bigwig
 
     script:
-    if (sample_bam.properties.target)
+    if (sample_bam.properties.target) 
         """
         picard MergeSamFiles \\
             ${sample_bam.target.flatten{"INPUT=$it"}.join(' ')} \\
@@ -394,8 +394,10 @@ process mergeSampleBam {
         """
     else
         """
-        cp $sample_bam ${sample}_sorted.bam
+	echo "No need to merge $sample_bam as it was a single lane, just create the index"
+	picard BuildBamIndex INPUT=$sample_bam	
         """
+
 }
 
 // Get bigwigs
@@ -433,7 +435,7 @@ if(!params.skip_markduplicates){
 	        saveAs: { filename -> filename.indexOf(".dup_metrics") > 0 ? filename : null }
 	
 	    input:
-	    set val(sample), file(sorted_bam)  from samples_sorted_bam
+	    set val(sample), file(sorted_bam), file(sorted_bam_ind) from samples_sorted_bam
 	
 	    output:
 	    set val(sample), file("${sample}_markdup.bam"), file("${sample}_markdup.bai") into samples_markdup_bam
@@ -511,7 +513,7 @@ if(!params.skip_markduplicates){
 	    tag "${sample}"
 
 	    input:
-	    set val(sample), file(sorted_bam) from samples_sorted_bam
+	    set val(sample), file(sorted_bam), file(sorted_bam_ind) from samples_sorted_bam
 	
 	    output:
 	    set val(sample), file("${sample}_recal.bam"), file("${sample}_recal.bai") into bam_vcall, bam_phasing, bam_metrics, bam_qualimap
