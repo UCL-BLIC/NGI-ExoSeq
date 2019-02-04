@@ -416,7 +416,7 @@ process bigwigs {
     fasta=params.gfasta
     fastafai="${fasta}.fai"
     fastafaiucsc=params.gfasta_fai_ucsc
-    if(params.genome == 'GRCh38') {    
+    if(params.genome == 'GRCh38')
   	  """
   	  bedtools genomecov -bg -ibam $raw_bam -g $fastafai > ${sample}_raw.bdg
   	  LC_COLLATE=C sort -k1,1 -k2,2n ${sample}_raw.bdg > ${sample}.raw_sorted.bdg
