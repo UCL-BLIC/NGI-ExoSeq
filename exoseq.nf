@@ -58,10 +58,6 @@ Kit files:
 
 Genome/Variation files:
 --dbsnp                        Absolute path to dbsnp file
---hapmap                       Absolute path to hapmap file
---thousandg                    Absolute path to 1kGP file
---mills                        Absolute path to mills file
---omni                         Absolute path to omni file
 --gfasta                       Absolute path to genome fasta file
 --bwa_index                    Absolute path to bwa genome index
 
@@ -98,10 +94,6 @@ params.bait = params.kitFiles[ params.kit ] ? params.kitFiles[ params.kit ].bait
 params.target = params.kitFiles[ params.kit ] ? params.kitFiles[ params.kit ].target ?: false : false
 params.target_bed = params.kitFiles[ params.kit ] ? params.kitFiles[ params.kit ].target_bed ?: false : false
 params.dbsnp = params.metaFiles[ params.genome ] ? params.metaFiles[ params.genome ].dbsnp ?: false : false
-params.hapmap = params.metaFiles[ params.genome ] ? params.metaFiles[ params.genome ].hapmap ?: false : false
-params.mills = params.metaFiles[ params.genome ] ? params.metaFiles[ params.genome ].mills ?: false : false
-params.thousandg = params.metaFiles[ params.genome ] ? params.metaFiles[ params.genome ].thousandg ?: false : false
-params.omni = params.metaFiles[ params.genome ] ? params.metaFiles[ params.genome ].omni ?: false : false
 params.gfasta = params.metaFiles[ params.genome ] ? params.metaFiles[ params.genome ].gfasta ?: false : false
 params.gfasta_fai_ucsc = params.metaFiles[ params.genome ] ? params.metaFiles[ params.genome ].gfasta_fai_ucsc ?: false : false
 params.bwa_index = params.metaFiles[ params.genome ] ? params.metaFiles[ params.genome ].bwa_index ?: false : false
@@ -134,9 +126,9 @@ if (!params.kitFiles[ params.kit ] && ['bait', 'target'].count{ params[it] } != 
     exit 1, "Kit '${params.kit}' is not available in pre-defined config, so " +
             "provide all kit specific files with option '--bait' and '--target'"
 }
-if (!params.metaFiles[ params.genome ] && ['gfasta', 'bwa_index', 'dbsnp', 'hapmap', "mills", "thousandg",'omni'].count{ params[it] } != 5){
+if (!params.metaFiles[ params.genome ] && ['gfasta', 'bwa_index', 'dbsnp'].count{ params[it] } != 3){
     exit 1, "Genome '${params.genome}' is not available in pre-defined config, so you need to provide all genome specific " +
-            "files with options '--gfasta', '--bwa_index', '--dbsnp', '--hapmap', '--mills', '--thousandg', '--omni' and '--target'"
+            "files with options '--gfasta', '--bwa_index' and '--dbsnp'"
 }
 
 // Has the run name been specified by the user?
@@ -603,7 +595,8 @@ process calculateMetrics {
 
     script:
     """
-    picard CollectAlignmentSummaryMetrics \\
+    java -jar -Xmx${task.memory.toGiga()}g \\
+        /shared/ucl/apps/picard-tools/2.18.9/picard.jar CollectAlignmentSummaryMetrics \\
         INPUT=$recal_bam \\
         OUTPUT=${sample}.align_metrics \\
         REFERENCE_SEQUENCE=$params.gfasta \\
@@ -621,7 +614,8 @@ process calculateMetrics {
         CREATE_MD5_FILE=false \\
         GA4GH_CLIENT_SECRETS=''
 
-    picard CollectInsertSizeMetrics \\
+    java -jar -Xmx${task.memory.toGiga()}g \\
+        /shared/ucl/apps/picard-tools/2.18.9/picard.jar CollectInsertSizeMetrics \\
         HISTOGRAM_FILE=${sample}_insert.pdf \\
         INPUT=$recal_bam \\
         OUTPUT=${sample}.insert_metrics \\
@@ -639,7 +633,8 @@ process calculateMetrics {
         CREATE_MD5_FILE=false \\
         GA4GH_CLIENT_SECRETS=''
 
-    picard CollectHsMetrics \\
+    java -jar -Xmx${task.memory.toGiga()}g \\
+	/shared/ucl/apps/picard-tools/2.18.9/picard.jar CollectHsMetrics \\
         BAIT_INTERVALS=$params.bait \\
         TARGET_INTERVALS=$params.target \\
         INPUT=$recal_bam \\
