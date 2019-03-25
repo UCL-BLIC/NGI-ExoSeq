@@ -387,6 +387,7 @@ process mergeSampleBam {
     else
         """
 	echo "No need to merge $sample_bam as it was a single lane, just create the index"
+	cp $sample_bam ${sample}_sorted.bam
 	picard BuildBamIndex INPUT=$sample_bam OUTPUT=${sample}_sorted.bai
         """
 
