@@ -482,28 +482,36 @@ if(!params.skip_markduplicates){
 	    file '.command.log' into gatk_base_recalibration_results,gatk_base_recalibration_results2
 		
 	    script:
-	    """
-	    gatk BaseRecalibrator \\
-	        -I $markdup_bam \\
-	        -R $params.gfasta \\
-	        -O ${sample}_table.recal \\
-	        -L $params.target \\
-	        -ip 100 \\
-		--known-sites $params.dbsnp \\
-	        --verbosity INFO \\
-	        --java-options -Xmx${task.memory.toGiga()}g
-
-	    gatk ApplyBQSR \\
-	        -R $params.gfasta \\
-	        -I $markdup_bam \\
-	        --bqsr-recal-file ${sample}_table.recal \\
-	        -O ${sample}_recal.bam \\
-	        -L $params.target \\
-	        -ip 100 \\
-	        --create-output-bam-index true \\
-	        --java-options -Xmx${task.memory.toGiga()}g
-
-	    """
+	    if(params.genome != 'mm9_6J') {
+		    """
+		    gatk BaseRecalibrator \\
+		        -I $markdup_bam \\
+		        -R $params.gfasta \\
+		        -O ${sample}_table.recal \\
+		        -L $params.target \\
+		        -ip 100 \\
+			--known-sites $params.dbsnp \\
+		        --verbosity INFO \\
+		        --java-options -Xmx${task.memory.toGiga()}g
+	
+		    gatk ApplyBQSR \\
+		        -R $params.gfasta \\
+		        -I $markdup_bam \\
+		        --bqsr-recal-file ${sample}_table.recal \\
+		        -O ${sample}_recal.bam \\
+		        -L $params.target \\
+		        -ip 100 \\
+		        --create-output-bam-index true \\
+		        --java-options -Xmx${task.memory.toGiga()}g
+	
+		    """
+	    }else{
+		    """
+	            echo "*** SKIPPING RECALIBRATION FOR mm9_6J ***"
+		    cp $markdup_bam ${sample}_recal.bam 
+		    cp $markdup_bam_ind ${sample}_recal.bai
+		    """
+	    }
 	}
 
 }else{
@@ -520,28 +528,36 @@ if(!params.skip_markduplicates){
 	    file '.command.log' into gatk_base_recalibration_results,gatk_base_recalibration_results2
 		
 	    script:
-	    """
-	    gatk BaseRecalibrator \\
-	        -I $sorted_bam \\
-	        -R $params.gfasta \\
-	        -O ${sample}_table.recal \\
-	        -L $params.target \\
-	        -ip 100 \\
-	        --known-sites $params.dbsnp \\
-	        --verbosity INFO \\
-	        --java-options -Xmx${task.memory.toGiga()}g
+	    if(params.genome != 'mm9_6J') {
+		    """
+		    gatk BaseRecalibrator \\
+		        -I $sorted_bam \\
+		        -R $params.gfasta \\
+		        -O ${sample}_table.recal \\
+		        -L $params.target \\
+		        -ip 100 \\
+		        --known-sites $params.dbsnp \\
+		        --verbosity INFO \\
+		        --java-options -Xmx${task.memory.toGiga()}g
+	
+		    gatk ApplyBQSR \\
+		        -R $params.gfasta \\
+		        -I $sorted_bam \\
+		        --bqsr-recal-file ${sample}_table.recal \\
+		        -O ${sample}_recal.bam \\
+		        -L $params.target \\
+		        -ip 100 \\
+		        --create-output-bam-index true \\
+		        --java-options -Xmx${task.memory.toGiga()}g	
+		    """
+	    }else{
+		    """
+	            echo "*** SKIPPING RECALIBRATION FOR mm9_6J ***"
+		    cp $markdup_bam ${sample}_recal.bam 
+		    cp $markdup_bam_ind ${sample}_recal.bai
+		    """
+	    }
 
-	    gatk ApplyBQSR \\
-	        -R $params.gfasta \\
-	        -I $sorted_bam \\
-	        --bqsr-recal-file ${sample}_table.recal \\
-	        -O ${sample}_recal.bam \\
-	        -L $params.target \\
-	        -ip 100 \\
-	        --create-output-bam-index true \\
-	        --java-options -Xmx${task.memory.toGiga()}g
-
-	    """
 	}
 }
 
@@ -564,7 +580,7 @@ process qualiMap {
     gcref = ''
     if(params.genome == 'GRCh37') gcref = '-gd HUMAN'
     if(params.genome == 'GRCh38') gcref = '-gd HUMAN'
-    if(params.genome == 'GRCm38') gcref = '-gd MOUSE'
+    if(params.genome == 'mm9_6J') gcref = '-gd MOUSE'
     """
     qualimap bamqc $gcref \\
     -bam $recal_bam \\
@@ -665,6 +681,7 @@ process variantCall {
     output:
     set val(sample), file("${sample}_variants.vcf"), file("${sample}_variants.vcf.idx") into raw_variants_gvcf, raw_variants
 
+    dbSNP = params.dbsnp ? "--dbsnp $params.dbsnp" : ''
     script:
     """
     gatk HaplotypeCaller \\
@@ -681,7 +698,7 @@ process variantCall {
         --annotation RMSMappingQuality \\
         --annotation FisherStrand \\
         --annotation Coverage \\
-        --dbsnp $params.dbsnp \\
+        $dbSNP \\
         --verbosity INFO \\
         --java-options -Xmx${task.memory.toGiga()}g
     """
@@ -703,13 +720,14 @@ process genotypegvcfs{
     output:
     set val(sample), file("${sample}_gvcf.vcf"), file("${sample}_gvcf.vcf.idx") into raw_gvcfs
 
+    dbSNP = params.dbsnp ? "--dbsnp $params.dbsnp" : ''
     script:
     """
     gatk GenotypeGVCFs \\
     -R $params.gfasta \\
     -L $params.target \\
     -ip 100 \\
-    --dbsnp $params.dbsnp \\
+    $dbSNP \\
     -V $raw_vcf \\
     -O ${sample}_gvcf.vcf 
     """
@@ -842,12 +860,13 @@ process variantEvaluate {
     file "${sample}_combined_phased_variants.eval"
     file "${sample}_combined_phased_variants.eval" into gatk_variant_eval_results,gatk_variant_eval_results2
 
+    dbSNP = params.dbsnp ? "--dbsnp $params.dbsnp" : ''
     script:
     """
     gatk -T VariantEval \\
         -R $params.gfasta \\
         --eval $phased_vcf \\
-        --dbsnp $params.dbsnp \\
+        $dbSNP \\
         -o ${sample}_combined_phased_variants.eval \\
         -L $params.target \\
         -ip 100 \\
@@ -866,6 +885,7 @@ process variantEvaluate {
 // 	cd /shared/ucl/depts/cancer/apps/miniconda/3/share/snpeff-4.3.1t-1
 //	wget https://kent.dl.sourceforge.net/project/snpeff/databases/v4_3/snpEff_v4_3_GRCh37.75.zip
 //	unzip snpEff_v4_3_GRCh37.75.zip
+//   Mouse from https://sourceforge.net/projects/snpeff/files/databases/v4_3/
 //// ALSO: this might fail with "java.lang.OutOfMemoryError: GC overhead limit exceeded" errors
 // 	(although t should be ok with more than 1 core: https://github.com/bcbio/bcbio-nextgen/issues/1730)
 //	or with "java.lang.OutOfMemoryError: Java heap space" errors, 
