@@ -327,7 +327,7 @@ process sortLanesBam {
     set val(sample), file(lane_bam) from lanes_merged_bam
 
     output:
-    set val({sample - ~/(_S\d+)?(_L\d*)?$/}), file("${sample}_sorted.bam") into lanes_sorted_bam
+    set val({sample - ~/(_S\d*)?(_L\d*)?$/}), file("${sample}_sorted.bam") into lanes_sorted_bam
 
     script:
     """
