@@ -681,8 +681,8 @@ process variantCall {
     output:
     set val(sample), file("${sample}_variants.vcf"), file("${sample}_variants.vcf.idx") into raw_variants_gvcf, raw_variants
 
-    dbSNP = params.dbsnp ? "--dbsnp $params.dbsnp" : ''
     script:
+    dbSNP = params.dbsnp ? "--dbsnp $params.dbsnp" : ''
     """
     gatk HaplotypeCaller \\
         -I $recal_bam \\
@@ -720,8 +720,8 @@ process genotypegvcfs{
     output:
     set val(sample), file("${sample}_gvcf.vcf"), file("${sample}_gvcf.vcf.idx") into raw_gvcfs
 
-    dbSNP = params.dbsnp ? "--dbsnp $params.dbsnp" : ''
     script:
+    dbSNP = params.dbsnp ? "--dbsnp $params.dbsnp" : ''
     """
     gatk GenotypeGVCFs \\
     -R $params.gfasta \\
@@ -860,8 +860,8 @@ process variantEvaluate {
     file "${sample}_combined_phased_variants.eval"
     file "${sample}_combined_phased_variants.eval" into gatk_variant_eval_results,gatk_variant_eval_results2
 
-    dbSNP = params.dbsnp ? "--dbsnp $params.dbsnp" : ''
     script:
+    dbSNP = params.dbsnp ? "--dbsnp $params.dbsnp" : ''
     """
     gatk -T VariantEval \\
         -R $params.gfasta \\
