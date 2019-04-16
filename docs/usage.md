@@ -23,7 +23,7 @@ results         # Finished results (configurable, see below)
 ## Main Arguments
 
 ### `-profile`
-This parameter is NOT necessary as the shortcut `nextflow_rnaseq` takes care of selecting the appropiate configuration profile. But just for your information, profiles are used to give 
+This parameter is NOT necessary as the shortcut `nextflow_exoseq` takes care of selecting the appropiate configuration profile. But just for your information, profiles are used to give 
 configuration presets for different compute environments.
 
 * `legion`
@@ -60,7 +60,7 @@ By default, the pipeline uses [BWA](https://github.com/lh3/bwa) to align the raw
 
 ## Reference Genomes
 
-The pipeline config files come bundled with paths to the following reference genome assemblies: GRCh37, GRCh38, mm9_6J. The pipeline has this aprameter set up as `GRCh37` by default, you can change it using the `--genome` flag.
+The pipeline config files come bundled with paths to the following reference genome assemblies: GRCh37, GRCh38, mm9_6J. The pipeline has this parameter set up as `GRCh37` by default, you can change it using the `--genome` flag.
 
 * Human
   * `--genome GRCh37`
