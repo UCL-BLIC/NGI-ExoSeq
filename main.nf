@@ -52,7 +52,7 @@ Options:
 --skip_recalibration           Skip BaseRecalibration step (useful for genomes/mouse strains with poor SNP annotation)
 
 Kit files:
---kit                          Kit used to prep samples [Default: 'agilent_v5']
+--kit                          Kit used to prep samples [Default: 'agilent_v5_hg19']
 --bait                         Absolute path to bait file
 --target                       Absolute path to target file
 --target_bed                   Absolute path to target bed file (snpEff compatible format)

@@ -1,6 +1,6 @@
-# NGI-ExoSeq Documentation
+# NGI-exoseq Documentation
 
-The NGI-ExoSeq documentation is split into a few different files:
+The UCL-BLIC/NGI_exoseq documentation is split into a few different files:
 
 * [`installation.md`](installation.md)
   * Pipeline installation and configuration instructions
