@@ -49,6 +49,7 @@ Output:
 Options:
 --singleEnd                    Specifies that the input is single end reads
 --skip_markduplicates          Skip picard MarkDuplicates (useful for amplicons)
+--skip_recalibration           Skip BaseRecalibration step (useful for genomes/mouse strains with poor SNP annotation)
 
 Kit files:
 --kit                          Kit used to prep samples [Default: 'agilent_v5']
@@ -74,6 +75,7 @@ documentation at https:// github.com/SciLifeLab/NGI-ExoSeq
 
 params.singleEnd = false
 params.skip_markduplicates = false
+params.skip_recalibration = false
 params.saveTrimmed = true
 params.notrim = false
 params.name = false
@@ -89,7 +91,7 @@ params.reads = false
 //params.genome = 'GRCh37'   #- defined in config
 params.clusterOptions = false
 params.project = false
-//params.kit = 'agilent_v5'   #- defined in config
+//params.kit = 'agilent_v5_hg19'   #- defined in config
 params.bait = params.kitFiles[ params.kit ] ? params.kitFiles[ params.kit ].bait ?: false : false
 params.target = params.kitFiles[ params.kit ] ? params.kitFiles[ params.kit ].target ?: false : false
 params.target_bed = params.kitFiles[ params.kit ] ? params.kitFiles[ params.kit ].target_bed ?: false : false
@@ -482,7 +484,8 @@ if(!params.skip_markduplicates){
 	    file '.command.log' into gatk_base_recalibration_results,gatk_base_recalibration_results2
 		
 	    script:
-	    if(params.genome != 'mm9_6J') {
+	    dbSNP = params.dbsnp ? "--known-sites $params.dbsnp" : ''
+	    if(!params.skip_recalibration){
 		    """
 		    gatk BaseRecalibrator \\
 		        -I $markdup_bam \\
@@ -490,7 +493,7 @@ if(!params.skip_markduplicates){
 		        -O ${sample}_table.recal \\
 		        -L $params.target \\
 		        -ip 100 \\
-			--known-sites $params.dbsnp \\
+			$dbsnp \\
 		        --verbosity INFO \\
 		        --java-options -Xmx${task.memory.toGiga()}g
 	
@@ -507,7 +510,7 @@ if(!params.skip_markduplicates){
 		    """
 	    }else{
 		    """
-	            echo "*** SKIPPING RECALIBRATION FOR mm9_6J ***"
+	            echo "*** SKIPPING RECALIBRATION ***"
 		    cp $markdup_bam ${sample}_recal.bam 
 		    cp $markdup_bam_ind ${sample}_recal.bai
 		    """
@@ -528,7 +531,8 @@ if(!params.skip_markduplicates){
 	    file '.command.log' into gatk_base_recalibration_results,gatk_base_recalibration_results2
 		
 	    script:
-	    if(params.genome != 'mm9_6J') {
+	    dbSNP = params.dbsnp ? "--known-sites $params.dbsnp" : ''
+	    if(!params.skip_recalibration){
 		    """
 		    gatk BaseRecalibrator \\
 		        -I $sorted_bam \\
@@ -536,7 +540,7 @@ if(!params.skip_markduplicates){
 		        -O ${sample}_table.recal \\
 		        -L $params.target \\
 		        -ip 100 \\
-		        --known-sites $params.dbsnp \\
+		        $dbsnp \\
 		        --verbosity INFO \\
 		        --java-options -Xmx${task.memory.toGiga()}g
 	
@@ -552,7 +556,7 @@ if(!params.skip_markduplicates){
 		    """
 	    }else{
 		    """
-	            echo "*** SKIPPING RECALIBRATION FOR mm9_6J ***"
+	            echo "*** SKIPPING RECALIBRATION ***"
 		    cp $markdup_bam ${sample}_recal.bam 
 		    cp $markdup_bam_ind ${sample}_recal.bai
 		    """
