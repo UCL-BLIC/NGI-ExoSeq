@@ -493,7 +493,7 @@ if(!params.skip_markduplicates){
 		        -O ${sample}_table.recal \\
 		        -L $params.target \\
 		        -ip 100 \\
-			$dbsnp \\
+			$dbSNP \\
 		        --verbosity INFO \\
 		        --java-options -Xmx${task.memory.toGiga()}g
 	
@@ -540,7 +540,7 @@ if(!params.skip_markduplicates){
 		        -O ${sample}_table.recal \\
 		        -L $params.target \\
 		        -ip 100 \\
-		        $dbsnp \\
+		        $dbSNP \\
 		        --verbosity INFO \\
 		        --java-options -Xmx${task.memory.toGiga()}g
 	
