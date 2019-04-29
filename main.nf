@@ -479,7 +479,7 @@ if(!params.skip_markduplicates){
 	    tag "${sample}"
 
             publishDir "${params.outdir}/${sample}/alignment", mode: 'copy',
-                saveAs: { (params.save_dedupBam && (filename.indexOf(".bam") > 0 || filename.indexOf(".bai") > 0 )) ? filename : null 
+                saveAs: { (params.save_dedupBam && (filename.indexOf(".bam") > 0 || filename.indexOf(".bai") > 0 )) ? filename : null }
 
 	    input:
 	    set val(sample), file(markdup_bam), file(markdup_bam_ind) from samples_markdup_bam
