@@ -478,8 +478,18 @@ if(!params.skip_markduplicates){
 	process recalibrate {
 	    tag "${sample}"
 
+            saveAs: {filename ->
+                if (filename.indexOf("_fastqc") > 0) "FastQC/$filename"
+                else if (filename.indexOf("trimming_report.txt") > 0) "logs/$filename"
+                else params.saveTrimmed ? filename : null
+            }
+
             publishDir "${params.outdir}/${sample}/alignment", mode: 'copy',
-                saveAs: { (params.save_dedupBam && (filename.indexOf(".bam") > 0 || filename.indexOf(".bai") > 0 )) ? filename : null }
+                saveAs: { filename -> 
+			if(params.save_dedupBam && filename.indexOf(".bam") > 0) filename
+			else if (params.save_dedupBam && filename.indexOf(".bai") > 0) filename
+			else null
+		}
 
 	    input:
 	    set val(sample), file(markdup_bam), file(markdup_bam_ind) from samples_markdup_bam
