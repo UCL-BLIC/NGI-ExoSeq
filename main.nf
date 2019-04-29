@@ -50,6 +50,7 @@ Options:
 --singleEnd                    Specifies that the input is single end reads
 --skip_markduplicates          Skip picard MarkDuplicates (useful for amplicons)
 --skip_recalibration           Skip BaseRecalibration step (useful for genomes/mouse strains with poor SNP annotation)
+--save_dedupBam                Save dedup BAM (not saved by default) 
 
 Kit files:
 --kit                          Kit used to prep samples [Default: 'agilent_v5_hg19']
@@ -76,6 +77,7 @@ documentation at https:// github.com/SciLifeLab/NGI-ExoSeq
 params.singleEnd = false
 params.skip_markduplicates = false
 params.skip_recalibration = false
+params.save_dedupBam = false
 params.saveTrimmed = true
 params.notrim = false
 params.name = false
@@ -476,13 +478,16 @@ if(!params.skip_markduplicates){
 	process recalibrate {
 	    tag "${sample}"
 
+            publishDir "${params.outdir}/${sample}/alignment", mode: 'copy',
+                saveAs: { (params.save_dedupBam && (filename.indexOf(".bam") > 0 || filename.indexOf(".bai") > 0 )) ? filename : null 
+
 	    input:
 	    set val(sample), file(markdup_bam), file(markdup_bam_ind) from samples_markdup_bam
 	
 	    output:
 	    set val(sample), file("${sample}_recal.bam"), file("${sample}_recal.bai") into bam_vcall, bam_phasing, bam_metrics, bam_qualimap
 	    file '.command.log' into gatk_base_recalibration_results,gatk_base_recalibration_results2
-		
+	
 	    script:
 	    dbSNP = params.dbsnp ? "--known-sites $params.dbsnp" : ''
 	    if(!params.skip_recalibration){
@@ -557,8 +562,8 @@ if(!params.skip_markduplicates){
 	    }else{
 		    """
 	            echo "*** SKIPPING RECALIBRATION ***"
-		    cp $markdup_bam ${sample}_recal.bam 
-		    cp $markdup_bam_ind ${sample}_recal.bai
+		    cp $sorted_bam ${sample}_recal.bam 
+		    cp $sorted_bam_ind ${sample}_recal.bai
 		    """
 	    }
 
@@ -941,6 +946,9 @@ summary['Run Name']     = custom_runName ?: workflow.runName
 summary['Genome']       = params.genome
 summary['Reads']        = params.reads
 summary['Data Type']    = params.singleEnd ? 'Single-End' : 'Paired-End'
+summary['Skip Markdup'] = params.skip_markduplicates ? 'Yes' : 'No'
+summary['Skip Recalibration'] = params.skip_recalibration ? 'Yes' : 'No'
+summary['Save dedup BAM'] = params.save_dedupBam ? 'Yes' : 'No'
 summary['Output dir']   = params.outdir
 summary['Working dir']  = workflow.workDir
 summary['Container Engine'] = workflow.containerEngine
