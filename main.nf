@@ -477,13 +477,6 @@ if(!params.skip_markduplicates){
 
 	process recalibrate {
 	    tag "${sample}"
-
-            saveAs: {filename ->
-                if (filename.indexOf("_fastqc") > 0) "FastQC/$filename"
-                else if (filename.indexOf("trimming_report.txt") > 0) "logs/$filename"
-                else params.saveTrimmed ? filename : null
-            }
-
             publishDir "${params.outdir}/${sample}/alignment", mode: 'copy',
                 saveAs: { filename -> 
 			if(params.save_dedupBam && filename.indexOf(".bam") > 0) filename
