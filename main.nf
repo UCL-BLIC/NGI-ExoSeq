@@ -391,7 +391,7 @@ process mergeSampleBam {
     else
         """
 	echo "No need to merge $sample_bam as it was a single lane, just create the index"
-	cp $sample_bam ${sample}_sorted.bam
+	rsync -a $sample_bam ${sample}_sorted.bam
 	picard BuildBamIndex INPUT=$sample_bam OUTPUT=${sample}_sorted.bai
         """
 
@@ -519,8 +519,8 @@ if(!params.skip_markduplicates){
 	    }else{
 		    """
 	            echo "*** SKIPPING RECALIBRATION ***"
-		    cp $markdup_bam ${sample}_recal.bam 
-		    cp $markdup_bam_ind ${sample}_recal.bai
+		    rsync -a $markdup_bam ${sample}_recal.bam 
+		    rsync -a $markdup_bam_ind ${sample}_recal.bai
 		    """
 	    }
 	}
@@ -565,8 +565,8 @@ if(!params.skip_markduplicates){
 	    }else{
 		    """
 	            echo "*** SKIPPING RECALIBRATION ***"
-		    cp $sorted_bam ${sample}_recal.bam 
-		    cp $sorted_bam_ind ${sample}_recal.bai
+		    rsync -a $sorted_bam ${sample}_recal.bam 
+		    rsync -a $sorted_bam_ind ${sample}_recal.bai
 		    """
 	    }
 
