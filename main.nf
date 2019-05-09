@@ -98,6 +98,7 @@ params.bait = params.kitFiles[ params.kit ] ? params.kitFiles[ params.kit ].bait
 params.target = params.kitFiles[ params.kit ] ? params.kitFiles[ params.kit ].target ?: false : false
 params.target_bed = params.kitFiles[ params.kit ] ? params.kitFiles[ params.kit ].target_bed ?: false : false
 params.dbsnp = params.metaFiles[ params.genome ] ? params.metaFiles[ params.genome ].dbsnp ?: false : false
+params.dbsnp_recal = params.metaFiles[ params.genome ] ? params.metaFiles[ params.genome ].dbsnp_recal ?: false : false
 params.gfasta = params.metaFiles[ params.genome ] ? params.metaFiles[ params.genome ].gfasta ?: false : false
 params.gfasta_fai_ucsc = params.metaFiles[ params.genome ] ? params.metaFiles[ params.genome ].gfasta_fai_ucsc ?: false : false
 params.bwa_index = params.metaFiles[ params.genome ] ? params.metaFiles[ params.genome ].bwa_index ?: false : false
@@ -492,7 +493,6 @@ if(!params.skip_markduplicates){
 	    file '.command.log' into gatk_base_recalibration_results,gatk_base_recalibration_results2
 	
 	    script:
-	    dbSNP = params.dbsnp ? "--known-sites $params.dbsnp" : ''
 	    if(!params.skip_recalibration){
 		    """
 		    gatk BaseRecalibrator \\
@@ -501,7 +501,7 @@ if(!params.skip_markduplicates){
 		        -O ${sample}_table.recal \\
 		        -L $params.target \\
 		        -ip 100 \\
-			$dbSNP \\
+			--known-sites $params.dbsnp_recal \\
 		        --verbosity INFO \\
 		        --java-options -Xmx${task.memory.toGiga()}g
 	
@@ -539,7 +539,6 @@ if(!params.skip_markduplicates){
 	    file '.command.log' into gatk_base_recalibration_results,gatk_base_recalibration_results2
 		
 	    script:
-	    dbSNP = params.dbsnp ? "--known-sites $params.dbsnp" : ''
 	    if(!params.skip_recalibration){
 		    """
 		    gatk BaseRecalibrator \\
@@ -548,7 +547,7 @@ if(!params.skip_markduplicates){
 		        -O ${sample}_table.recal \\
 		        -L $params.target \\
 		        -ip 100 \\
-		        $dbSNP \\
+		        --known-sites $params.dbsnp_recal \\
 		        --verbosity INFO \\
 		        --java-options -Xmx${task.memory.toGiga()}g
 	
