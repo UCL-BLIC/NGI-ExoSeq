@@ -530,6 +530,12 @@ if(!params.skip_markduplicates){
 	// Recalibrate the bam file with known variants
 	process recalibrate_wo_markdup {
 	    tag "${sample}"
+            publishDir "${params.outdir}/${sample}/alignment", mode: 'copy',
+                saveAs: { filename -> 
+			if(params.save_dedupBam && filename.indexOf(".bam") > 0) filename
+			else if (params.save_dedupBam && filename.indexOf(".bai") > 0) filename
+			else null
+		}
 
 	    input:
 	    set val(sample), file(sorted_bam), file(sorted_bam_ind) from samples_sorted_bam
