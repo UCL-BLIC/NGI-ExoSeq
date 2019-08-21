@@ -899,7 +899,7 @@ process variantEvaluate {
 
 ////////////////////////////////////////////////////////////////////////////////////////////
 //// Download the GRCh37.75 database manually as this will not let you write in miniconda
-// 	cd /shared/ucl/depts/cancer/apps/miniconda/3/share/snpeff-4.3.1t-1
+// 	cd /shared/ucl/depts/cancer/apps/miniconda3/share/snpeff-4.3.1t-1
 //	wget https://kent.dl.sourceforge.net/project/snpeff/databases/v4_3/snpEff_v4_3_GRCh37.75.zip
 //	unzip snpEff_v4_3_GRCh37.75.zip
 //   Mouse from https://sourceforge.net/projects/snpeff/files/databases/v4_3/
